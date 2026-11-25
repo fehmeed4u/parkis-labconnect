@@ -3,7 +3,9 @@
  *
  * The Google Sheet this script is bound to is the database: one tab per table.
  * The web app (GitHub Pages) calls this script's web-app URL with POST requests.
- * Every request carries a Google sign-in ID token, which is checked here.
+ * Staff sign in with a username + password the HOD gives them (People & roles), or — if a
+ * Google client ID is configured — with their school Google account. Every request carries
+ * either a session token from login_() or a Google ID token, and is checked here.
  *
  * Setup (see README):
  *   1. Create a Google Sheet, open Extensions → Apps Script, paste this file + appsscript.json.
@@ -18,7 +20,7 @@
 
 var TABLES = {
   Settings:     ['key', 'value'],
-  Users:        ['email', 'name', 'role', 'active'],
+  Users:        ['email', 'name', 'role', 'active', 'passwordHash', 'salt', 'mustChange'],
   Labs:         ['room', 'name', 'building', 'type'],
   Timetable:    ['id', 'teacher', 'day', 'start', 'end', 'subject', 'code', 'class', 'grade', 'course', 'room'],
   Inventory:    ['id', 'list', 'category', 'name', 'size', 'rooms', 'storage', 'min', 'orderRequired', 'supplier', 'ref', 'hazcards', 'icon', 'photo', 'shelfLife', 'storageGroup', 'notes', 'orderApproved'],
@@ -27,6 +29,8 @@ var TABLES = {
   Library:      ['id', 'title', 'grade', 'subject', 'course', 'topic', 'kit', 'prepMinutes', 'method'],
   Requests:     ['id', 'createdAt', 'updatedAt', 'teacherEmail', 'teacher', 'class', 'grade', 'subject', 'date', 'start', 'end', 'room', 'timetabledRoom', 'practicalId', 'title', 'sets', 'kit', 'notes', 'status', 'prep', 'late', 'lateChoice', 'swapWith', 'offer', 'techNotes', 'rating', 'feedback', 'history', 'query', 'reply', 'hodApproved']
 };
+var AUTH_COLS = ['passwordHash', 'salt', 'mustChange'];
+var SESSION_HOURS = 12, HASH_ROUNDS = 2000, MAX_FAILS = 5;
 var JSON_COLS = { rooms: 1, storage: 1, hazcards: 1, kit: 1, history: 1, value: 1 };
 var WRITE_ROLES = {
   Settings: ['admin'], Users: ['admin'], Labs: ['admin'], Timetable: ['admin'], Hazcards: ['admin'],
@@ -43,7 +47,10 @@ function doPost(e) {
   var body;
   try { body = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, error: 'bad_json' }); }
   try {
-    var me = auth_(body.idToken);
+    if (body.action === 'login') return json_({ ok: true, data: login_(body.data || {}) });
+    var me = auth_(body.idToken, body.token);
+    if (me.mustChange && ['changePassword', 'logout'].indexOf(body.action) < 0) throw new Error('must_change_password');
+    if (body.action === 'logout') { if (body.token) PropertiesService.getScriptProperties().deleteProperty('sess_' + body.token); return json_({ ok: true, data: true }); }
     var out = route_(body.action, body.data || {}, me);
     return json_({ ok: true, me: me, data: out });
   } catch (err) {
@@ -57,9 +64,29 @@ function json_(o) {
 
 /* ---------- auth ---------- */
 
-function auth_(idToken) {
+function truthy_(v) { return v === true || String(v).toUpperCase() === 'TRUE'; }
+function isActive_(u) { return !(u.active === false || String(u.active).toUpperCase() === 'FALSE'); }
+function admins_() { return (PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '').toLowerCase().split(',').map(function (s) { return s.trim(); }).filter(String); }
+function meOf_(u, email) {
+  var id = String(u ? u.email : email).toLowerCase();
+  return { email: id, name: (u && u.name) || email, role: admins_().indexOf(id) >= 0 ? 'admin' : (u && u.role) || 'teacher',
+    hasPassword: !!(u && u.passwordHash), mustChange: !!(u && truthy_(u.mustChange)) };
+}
+function findUser_(id) { id = String(id || '').trim().toLowerCase(); return read_('Users').filter(function (x) { return String(x.email).toLowerCase() === id; })[0]; }
+
+function auth_(idToken, token) {
+  if (token) {
+    var props = PropertiesService.getScriptProperties();
+    var s = props.getProperty('sess_' + token);
+    if (!s) throw new Error('session_expired');
+    s = JSON.parse(s);
+    if (s.exp < Date.now()) { props.deleteProperty('sess_' + token); throw new Error('session_expired'); }
+    var u = findUser_(s.email);
+    if (!u || !isActive_(u)) { props.deleteProperty('sess_' + token); throw new Error('not_registered'); }
+    return meOf_(u);
+  }
   if (!idToken) throw new Error('not_signed_in');
-  var props = PropertiesService.getScriptProperties();
+  var props2 = PropertiesService.getScriptProperties();
   var cache = CacheService.getScriptCache();
   var cached = cache.get('tok_' + idToken.slice(-40));
   var info;
@@ -70,17 +97,103 @@ function auth_(idToken) {
     info = JSON.parse(res.getContentText());
     cache.put('tok_' + idToken.slice(-40), JSON.stringify(info), 600);
   }
-  if (info.aud !== props.getProperty('CLIENT_ID')) throw new Error('wrong_client');
+  if (!props2.getProperty('CLIENT_ID') || info.aud !== props2.getProperty('CLIENT_ID')) throw new Error('wrong_client');
   if (String(info.email_verified) !== 'true') throw new Error('email_not_verified');
-  var domain = props.getProperty('SCHOOL_DOMAIN');
+  var domain = props2.getProperty('SCHOOL_DOMAIN');
   var email = String(info.email).toLowerCase();
   if (domain && email.split('@')[1] !== domain.toLowerCase()) throw new Error('wrong_domain');
-  var admins = (props.getProperty('ADMIN_EMAILS') || '').toLowerCase().split(',').map(function (s) { return s.trim(); });
-  var users = read_('Users');
-  var u = users.filter(function (x) { return String(x.email).toLowerCase() === email; })[0];
-  if (admins.indexOf(email) >= 0) return { email: email, name: (u && u.name) || info.name || email, role: 'admin' };
-  if (!u || u.active === false || String(u.active).toUpperCase() === 'FALSE') throw new Error('not_registered:' + email);
-  return { email: email, name: u.name || info.name, role: u.role || 'teacher' };
+  var gu = findUser_(email);
+  if (admins_().indexOf(email) >= 0) { var m = meOf_(gu, email); m.name = (gu && gu.name) || info.name || email; m.mustChange = false; return m; }
+  if (!gu || !isActive_(gu)) throw new Error('not_registered:' + email);
+  var me = meOf_(gu); me.mustChange = false; // Google proves who they are; no temporary password to replace
+  return me;
+}
+
+/* ---------- username + password ---------- */
+
+function hash_(pw, salt) {
+  var p = Utilities.newBlob(String(pw)).getBytes(), k = Utilities.newBlob(String(salt)).getBytes();
+  var h = Utilities.computeHmacSha256Signature(p, k);
+  for (var i = 0; i < HASH_ROUNDS; i++) h = Utilities.computeHmacSha256Signature(h.concat(k), p);
+  return Utilities.base64Encode(h);
+}
+function same_(a, b) { a = String(a); b = String(b); if (a.length !== b.length) return false; var d = 0; for (var i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; }
+function tempPassword_() {
+  var A = 'abcdefghjkmnpqrstuvwxyz23456789', bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid() + Utilities.getUuid());
+  var s = ''; for (var i = 0; i < 10; i++) s += A.charAt((bytes[i] + 256) % A.length);
+  return s.slice(0, 5) + '-' + s.slice(5);
+}
+function setPassword_(u, pw, mustChange) { u.salt = Utilities.getUuid(); u.passwordHash = hash_(pw, u.salt); u.mustChange = !!mustChange; }
+function endSessions_(email) {
+  var props = PropertiesService.getScriptProperties(), all = props.getProperties(), now = Date.now();
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf('sess_') !== 0) return;
+    try { var s = JSON.parse(all[k]); if (s.exp < now || (email && String(s.email).toLowerCase() === String(email).toLowerCase())) props.deleteProperty(k); } catch (e) { props.deleteProperty(k); }
+  });
+}
+function publicUser_(u) { var o = {}; Object.keys(u).forEach(function (k) { if (AUTH_COLS.indexOf(k) < 0) o[k] = u[k]; }); o.hasPassword = !!u.passwordHash; o.mustChange = truthy_(u.mustChange); return o; }
+
+function login_(d) {
+  var id = String(d.username || '').trim().toLowerCase();
+  if (!id || !d.password) throw new Error('bad_login');
+  var cache = CacheService.getScriptCache(), k = 'fail_' + id, fails = Number(cache.get(k) || 0);
+  if (fails >= MAX_FAILS) throw new Error('too_many_attempts');
+  var u = findUser_(id);
+  if (!u || !u.passwordHash || !isActive_(u) || !same_(hash_(d.password, u.salt), u.passwordHash)) { cache.put(k, String(fails + 1), 600); throw new Error('bad_login'); }
+  cache.remove(k);
+  endSessions_(); // tidy up expired ones
+  var token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
+  PropertiesService.getScriptProperties().setProperty('sess_' + token, JSON.stringify({ email: u.email, exp: Date.now() + SESSION_HOURS * 3600 * 1000 }));
+  return { token: token, me: meOf_(u) };
+}
+
+function changePassword_(d, me) {
+  if (String(d.password || '').length < 8) throw new Error('password_too_short');
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var u = findUser_(me.email); if (!u) throw new Error('not_registered');
+    if (!truthy_(u.mustChange) && (!u.passwordHash || !same_(hash_(d.current || '', u.salt), u.passwordHash))) throw new Error('wrong_current_password');
+    if (u.passwordHash && same_(hash_(d.password, u.salt), u.passwordHash)) throw new Error('same_password');
+    setPassword_(u, d.password, false); writeRow_('Users', 'email', u);
+    return meOf_(u);
+  } finally { lock.releaseLock(); }
+}
+
+/** HOD adds or edits a person. New people (or makePassword) get a temporary password, returned once. */
+function saveUser_(d, me) {
+  requireRole_(me, ['admin']);
+  var row = d.user || {}; var id = String(row.email || '').trim().toLowerCase();
+  if (!id || /\s/.test(id)) throw new Error('bad_username');
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var ex = findUser_(id);
+    if (d.isNew && ex) throw new Error('username_taken');
+    if (!d.isNew && !ex) throw new Error('not_found');
+    var u = { email: ex ? ex.email : id, name: String(row.name || '').trim(), role: ['teacher', 'technician', 'admin'].indexOf(row.role) >= 0 ? row.role : 'teacher', active: isActive_(row) };
+    AUTH_COLS.forEach(function (c) { if (ex) u[c] = ex[c]; });
+    var temp = '';
+    if (d.makePassword) { temp = tempPassword_(); setPassword_(u, temp, true); endSessions_(id); }
+    if (!u.active) endSessions_(id);
+    writeRow_('Users', 'email', u);
+    return { user: publicUser_(u), tempPassword: temp };
+  } finally { lock.releaseLock(); }
+}
+function removeUser_(id, me) {
+  requireRole_(me, ['admin']);
+  if (String(id).toLowerCase() === String(me.email).toLowerCase()) throw new Error('cannot_remove_yourself');
+  remove_('Users', String(id).toLowerCase(), me); endSessions_(id); return true;
+}
+
+/**
+ * Run from the editor to get the first HOD in without Google sign-in. Creates (or resets) the user named in the
+ * ADMIN_USERNAME script property (default "hod") as an admin and writes a temporary password to the execution log.
+ */
+function makeFirstAdmin() {
+  var id = (PropertiesService.getScriptProperties().getProperty('ADMIN_USERNAME') || 'hod').trim().toLowerCase();
+  var u = findUser_(id) || { email: id, name: 'Head of department', role: 'admin', active: true };
+  u.role = 'admin'; u.active = true; var temp = tempPassword_(); setPassword_(u, temp, true);
+  writeRow_('Users', 'email', u); endSessions_(id);
+  Logger.log('Sign in as "' + id + '" with the temporary password: ' + temp + ' — you will be asked to choose your own.');
 }
 
 /* ---------- router ---------- */
@@ -94,7 +207,11 @@ function route_(action, d, me) {
     case 'upsert': return upsert_(d.table, d.row, me);
     case 'remove': return remove_(d.table, d.key, me);
     case 'importTable': return importTable_(d.table, d.rows, d.mode, me);
-    case 'exportTable': requireRole_(me, ['admin', 'technician']); return read_(d.table);
+    case 'exportTable': requireRole_(me, ['admin', 'technician']); return d.table === 'Users' ? read_('Users').map(publicUser_) : read_(d.table);
+    case 'changePassword': return changePassword_(d, me);
+    case 'saveUser': return saveUser_(d, me);
+    case 'resetPassword': return saveUser_({ user: publicUser_(findUser_(d.email) || {}), makePassword: true }, me);
+    case 'removeUser': return removeUser_(d.email, me);
     default: throw new Error('unknown_action');
   }
 }
@@ -106,7 +223,7 @@ function bootstrap_(me) {
   read_('Settings').forEach(function (r) { settings[r.key] = r.value; });
   return {
     settings: settings,
-    users: me.role === 'admin' ? read_('Users') : read_('Users').map(function (u) { return { email: u.email, name: u.name, role: u.role }; }),
+    users: me.role === 'admin' ? read_('Users').map(publicUser_) : read_('Users').map(function (u) { return { email: u.email, name: u.name, role: u.role }; }),
     labs: read_('Labs'), timetable: read_('Timetable'), inventory: read_('Inventory'),
     hazcards: read_('Hazcards'), library: read_('Library'), requests: read_('Requests'),
     log: me.role === 'teacher' ? [] : read_('InventoryLog').slice(-300)
@@ -174,6 +291,7 @@ function upsert_(table, row, me) {
   requireRole_(me, WRITE_ROLES[table] || ['admin']);
   var key = TABLES[table][0];
   if (!row[key]) row[key] = (table === 'Inventory' ? 'i' : table === 'Library' ? 'p' : 'x') + Utilities.getUuid().slice(0, 8);
+  if (table === 'Users') throw new Error('use_saveUser');
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try { writeRow_(table, key, row); } finally { lock.releaseLock(); }
   return row;
@@ -194,6 +312,11 @@ function importTable_(table, rows, mode, me) {
   var lock = LockService.getScriptLock(); lock.waitLock(30000);
   try {
     if (table === 'Settings' && !Array.isArray(rows)) rows = Object.keys(rows).map(function (k) { return { key: k, value: rows[k] }; });
+    if (table === 'Users') { // never take passwords from a file; keep the ones people already have
+      var old = {}; read_('Users').forEach(function (u) { old[String(u.email).toLowerCase()] = u; });
+      rows = rows.map(function (r) { var o = old[String(r.email || '').toLowerCase()] || {}; var n = {}; Object.keys(r).forEach(function (k) { n[k] = r[k]; });
+        n.email = String(r.email || '').trim().toLowerCase(); AUTH_COLS.forEach(function (c) { n[c] = o[c] || ''; }); return n; });
+    }
     if (mode !== 'append' && sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, head.length).clearContent();
     if (!rows.length) return 0;
     var values = rows.map(function (r) { return head.map(function (h) { return enc_(h, r[h]); }); });

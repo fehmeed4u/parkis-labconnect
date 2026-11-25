@@ -1,4 +1,5 @@
 import { db, call, TABLES, isDemo } from '../store.js';
+import { CONFIG } from '../config.js';
 import { esc, iso, monday, addDays, ACTIVE, DAYS, labRooms, totalStock, toCSV, fromCSV, nice } from '../logic.js';
 import { $, modal, closeModal, toast, confirmBox, download } from '../ui.js';
 import { reload } from '../app.js';
@@ -90,32 +91,58 @@ function overview(el) {
   el.querySelectorAll('[data-decline]').forEach(b => b.onclick = async () => { if (await confirmBox('Decline this?', 'Decline')) act(b.dataset.decline, false); });
 }
 
-function people(p, root) {
-  const ROLES = [['teacher', 'Teacher'], ['technician', 'Lab technician'], ['admin', 'Admin (HOD)']];
-  p.innerHTML = `<div class="row between wrap"><p class="muted">Only people listed here (and active) can sign in. The name must match the timetable so their lessons appear.</p><button class="btn pri" id="addu">+ Add person</button></div>
-    <section class="card flush scroll"><table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Active</th><th></th></tr></thead><tbody>
-    ${db.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email || '— add email —')}</td><td>${esc((ROLES.find(r => r[0] === u.role) || [, u.role])[1])}</td><td>${u.active === false || u.active === 'FALSE' ? 'No' : 'Yes'}</td><td class="right"><button class="linkbtn" data-u="${esc(u.email || u.name)}">Edit</button></td></tr>`).join('')}</tbody></table></section>`;
+const ROLES = [['teacher', 'Teacher'], ['technician', 'Lab technician'], ['admin', 'Head of department (admin)']];
+const roleName = r => (ROLES.find(x => x[0] === r) || [, r])[1];
+const active = u => !(u.active === false || u.active === 'FALSE');
+const AUTH_ERR = { username_taken: 'Someone already has that username. Choose another.', bad_username: 'Usernames can’t be empty or contain spaces.', cannot_remove_yourself: 'You can’t remove your own account.' };
+
+function people(p) {
+  const signIn = u => u.mustChange ? '<span class="pill warn">Temporary password</span>' : u.hasPassword ? '<span class="pill ok">Password set</span>' : u.email && u.email.includes('@') && !isDemo() && CONFIG.GOOGLE_CLIENT_ID ? '<span class="pill">Google only</span>' : '<span class="pill urgent">No password</span>';
+  const users = db.users.slice().sort((a, b) => (a.role + a.name).localeCompare(b.role + b.name));
+  p.innerHTML = `<div class="row between wrap"><p class="muted" style="max-width:640px">Add each person with their name, a username and their role. They get a temporary password to sign in with once, then choose their own. For teachers, use the name exactly as it appears on the timetable so their lessons show up.</p><button class="btn pri" id="addu">+ Add person</button></div>
+    <section class="card flush scroll"><table class="tbl"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Sign-in</th><th>Active</th><th></th></tr></thead><tbody>
+    ${users.map(u => `<tr><td class="strong">${esc(u.name)}</td><td>${esc(u.email || '—')}</td><td>${esc(roleName(u.role))}</td><td>${signIn(u)}</td><td>${active(u) ? 'Yes' : '<span class="muted">No</span>'}</td>
+      <td class="right" style="white-space:nowrap"><button class="btn small" data-reset="${esc(u.email)}">${u.hasPassword ? 'Reset password' : 'Create password'}</button> <button class="btn small" data-u="${esc(u.email)}">Edit</button></td></tr>`).join('')}</tbody></table></section>`;
   const teachers = [...new Set(db.timetable.map(t => t.teacher))].sort();
+  const showTemp = (u, temp) => {
+    const d = modal(`<div class="row between"><h2 class="h2">Temporary password for ${esc(u.name)}</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+      <p>Give these to ${esc(u.name)}. They’ll choose their own password the first time they sign in.</p>
+      <dl class="dl" style="font-size:16px"><dt>Username</dt><dd><strong>${esc(u.email)}</strong></dd><dt>Temporary password</dt><dd><code id="tmp" style="font-size:20px;font-weight:700;letter-spacing:.04em">${esc(temp)}</code></dd></dl>
+      <div class="note warn">This password is shown only once. If it gets lost, use <strong>Reset password</strong> to make a new one.</div>
+      <div class="row end gap"><button class="btn" id="copyTmp">Copy username and password</button><button class="btn pri" data-close>Done</button></div>`);
+    d.querySelector('#copyTmp').onclick = async () => { try { await navigator.clipboard.writeText(`Science Practicals\nUsername: ${u.email}\nTemporary password: ${temp}\n${location.origin + location.pathname}`); toast('Copied'); } catch (e) { toast('Select the password and copy it by hand', 'bad'); } };
+  };
   const edit = u => {
-    const d = modal(`<div class="row between"><h2 class="h2">${u.name ? 'Edit person' : 'Add person'}</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
-      <form id="uf" class="stack"><label class="fld">Name (as in timetable)<input name="name" list="tnames" value="${esc(u.name || '')}" required><datalist id="tnames">${teachers.map(t => `<option value="${esc(t)}">`).join('')}</datalist></label>
-      <label class="fld">School Google email<input name="email" type="email" value="${esc(u.email || '')}" required></label>
+    const isNew = !u.email;
+    const d = modal(`<div class="row between"><h2 class="h2">${isNew ? 'Add person' : 'Edit ' + esc(u.name)}</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+      <form id="uf" class="stack"><label class="fld">Name (as on the timetable)<input name="name" list="tnames" value="${esc(u.name || '')}" required><datalist id="tnames">${teachers.map(t => `<option value="${esc(t)}">`).join('')}</datalist></label>
+      <label class="fld">Username${isNew ? ' — or their school email, if they’ll also sign in with Google' : ''}<input name="email" value="${esc(u.email || '')}" autocapitalize="none" spellcheck="false" pattern="\\S+" title="No spaces" required ${isNew ? '' : 'readonly'}></label>
+      ${isNew ? '' : '<p class="muted xs" style="margin-top:-6px">A username can’t be changed, because past requests are filed under it. To change it, remove the person and add them again.</p>'}
       <label class="fld">Role<select name="role">${ROLES.map(([k, l]) => `<option value="${k}"${u.role === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label class="check"><input type="checkbox" name="active" ${u.active === false || u.active === 'FALSE' ? '' : 'checked'}> Can sign in</label>
-      <div class="row between">${u.name ? '<button type="button" class="btn danger-outline" id="delu">Remove</button>' : '<span></span>'}<div class="row gap"><button type="button" class="btn" data-close>Cancel</button><button class="btn pri">Save</button></div></div></form>`);
+      <label class="check"><input type="checkbox" name="active" ${active(u) ? 'checked' : ''}> Can sign in</label>
+      ${isNew ? '<label class="check"><input type="checkbox" name="makePassword" checked> Make a temporary password now</label>' : ''}
+      <p id="uerr" class="err small" role="alert"></p>
+      <div class="row between">${isNew ? '<span></span>' : '<button type="button" class="btn danger-outline" id="delu">Remove</button>'}<div class="row gap"><button type="button" class="btn" data-close>Cancel</button><button class="btn pri">${isNew ? 'Add person' : 'Save'}</button></div></div></form>`);
+    if (isNew) { const nm = d.querySelector('[name=name]'), un = d.querySelector('[name=email]'); let touched = false;
+      un.oninput = () => { touched = true; };
+      nm.oninput = () => { if (!touched) un.value = nm.value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, ''); }; }
     d.querySelector('#uf').onsubmit = async e => {
       e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
-      const row = { email: f.email.trim().toLowerCase(), name: f.name.trim(), role: f.role, active: !!f.active };
-      const others = db.users.filter(x => x !== u && x.email !== row.email);
       try {
-        await call('importTable', { table: 'Users', rows: others.concat([row]), mode: 'replace' });
-        closeModal(); toast('Saved'); await reload();
-      } catch (err) { toast(err.message, 'bad'); }
+        const out = await call('saveUser', { isNew, makePassword: !!f.makePassword, user: { email: f.email.trim().toLowerCase(), name: f.name.trim(), role: f.role, active: !!f.active } });
+        closeModal(); await reload();
+        if (out.tempPassword) showTemp(out.user, out.tempPassword); else toast('Saved');
+      } catch (err) { d.querySelector('#uerr').textContent = AUTH_ERR[err.message] || err.message; }
     };
-    const del = d.querySelector('#delu'); if (del) del.onclick = async () => { if (await confirmBox('Remove ' + u.name + '? They will no longer be able to sign in.', 'Remove')) { await call('importTable', { table: 'Users', rows: db.users.filter(x => x !== u), mode: 'replace' }); closeModal(); reload(); } };
+    const del = d.querySelector('#delu'); if (del) del.onclick = async () => { if (await confirmBox('Remove ' + u.name + '? They will no longer be able to sign in.', 'Remove')) { try { await call('removeUser', { email: u.email }); reload(); } catch (err) { toast(AUTH_ERR[err.message] || err.message, 'bad'); } } };
   };
-  $('#addu', p).onclick = () => edit({ role: 'teacher' });
-  p.querySelectorAll('[data-u]').forEach(b => b.onclick = () => edit(db.users.find(u => (u.email || u.name) === b.dataset.u)));
+  $('#addu', p).onclick = () => edit({ role: 'teacher', active: true });
+  p.querySelectorAll('[data-u]').forEach(b => b.onclick = () => edit(db.users.find(u => u.email === b.dataset.u)));
+  p.querySelectorAll('[data-reset]').forEach(b => b.onclick = async () => {
+    const u = db.users.find(x => x.email === b.dataset.reset);
+    if (!(await confirmBox(`Make a new temporary password for ${u.name}? ${u.hasPassword ? 'Their current password stops working.' : ''}`, 'Make password'))) return;
+    try { const out = await call('resetPassword', { email: u.email }); await reload(); showTemp(out.user, out.tempPassword); } catch (err) { toast(AUTH_ERR[err.message] || err.message, 'bad'); }
+  });
 }
 
 function settings(p) {

@@ -15,7 +15,7 @@ It is a plain static site (HTML, CSS, JavaScript; no build step). It runs in two
 | Mode | Where data lives | Use it for |
 |---|---|---|
 | `demo` (default) | The browser’s local storage, seeded from `data/demo/` | Trying it out. Anyone can open it; nothing is shared. |
-| `live` | A Google Sheet in your school Google Workspace, through a Google Apps Script web app | Real use. Staff sign in with their school Google account. |
+| `live` | A Google Sheet in your school Google Workspace, through a Google Apps Script web app | Real use. Staff sign in with the username and password the HOD gives them (or, optionally, their school Google account). |
 
 The demo data is anonymised (Teacher A–L). Your real timetable, inventory, staff names and library are **not** in this repository. They are in the separate `school-data` folder, which you load through **Admin → Import & export** once the live version is running. Do not commit that folder to a public repository.
 
@@ -41,7 +41,9 @@ You need a school Google account that can create Sheets and Apps Script projects
 3. Click the gear (**Project Settings**), tick **Show "appsscript.json" manifest file in editor**, then replace that file’s contents with `apps-script/appsscript.json`.
 4. Back in the editor, choose the function **`setup`** in the toolbar and click **Run**. Accept the permission prompts. This creates one tab per table (Settings, Users, Labs, Timetable, Inventory, InventoryLog, Hazcards, Library, Requests).
 
-### 2.2 A Google sign-in client ID
+### 2.2 (Optional) A Google sign-in client ID
+
+Skip this if staff will only use usernames and passwords.
 
 1. Open <https://console.cloud.google.com/>, create (or pick) a project for the school.
 2. **APIs & Services → OAuth consent screen**: choose **Internal** (only your school domain), give it a name, save.
@@ -54,9 +56,10 @@ In Apps Script, **Project Settings → Script properties → Add**:
 
 | Property | Value |
 |---|---|
-| `CLIENT_ID` | the Client ID from 2.2 |
+| `CLIENT_ID` | the Client ID from 2.2 (leave out if you skipped it) |
 | `SCHOOL_DOMAIN` | your email domain, e.g. `yourschool.pt` (only these accounts can sign in) |
-| `ADMIN_EMAILS` | the HOD’s email; separate several with commas. These people are always admins. |
+| `ADMIN_EMAILS` | the HOD’s email or username; separate several with commas. These people are always admins. |
+| `ADMIN_USERNAME` | (optional) the HOD’s username for the first sign-in, default `hod` |
 | `HAZCARD_FOLDER_ID` | (optional, see 2.6) the Drive folder ID of your hazcard PDFs |
 
 ### 2.4 Deploy the web app
@@ -67,7 +70,7 @@ In Apps Script, **Project Settings → Script properties → Add**:
 
 When you change `Code.gs` later, use **Deploy → Manage deployments → edit (pencil) → Version: New version** so the URL stays the same.
 
-> **Updating from an earlier version:** the screens update added a few columns (`query`, `reply`, `hodApproved` on Requests and `orderApproved` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
+> **Updating from an earlier version:** recent updates added columns (`passwordHash`, `salt`, `mustChange` on Users; `query`, `reply`, `hodApproved` on Requests; `orderApproved` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
 
 ### 2.5 Switch the site to live
 
@@ -77,12 +80,14 @@ Edit `assets/js/config.js` on GitHub:
 export const CONFIG = {
   MODE: 'live',
   API_URL: 'https://script.google.com/macros/s/…/exec',
-  GOOGLE_CLIENT_ID: '…apps.googleusercontent.com',
+  GOOGLE_CLIENT_ID: '…apps.googleusercontent.com',   // or '' for usernames and passwords only
   SCHOOL_DOMAIN: 'yourschool.pt'
 };
 ```
 
-Commit. Open the site and sign in as the HOD.
+Commit.
+
+**First sign-in as the HOD.** In Apps Script choose the function **`makeFirstAdmin`** and click **Run**. Open **Execution log**: it shows the username (`hod`, or your `ADMIN_USERNAME`) and a temporary password. Sign in with them on the site; you’ll be asked to choose your own password straight away. (If you set up Google sign-in and put your email in `ADMIN_EMAILS`, you can use the Google button instead.)
 
 ### 2.6 Load your school’s data
 
@@ -98,7 +103,13 @@ In the site, go to **Admin → Import & export → Import**, choose a table, cho
 | Library | `library.json` |
 | Users | `users.json` |
 
-Then open **Admin → People** and add each person’s school email. The names must match the timetable so that each teacher sees their own lessons. Set each lab technician’s role to *Lab technician*.
+Then open **People & roles** and click **+ Add person** for each member of staff: their name (exactly as on the timetable, so teachers see their own lessons), a username, and their role (*Teacher*, *Lab technician* or *Head of department*). The app makes a **temporary password** and shows it once — copy it and give it to the person with their username. The first time they sign in they must choose their own password (at least 8 characters).
+
+- Forgotten password? **People & roles → Reset password** makes a new temporary one; the old password stops working at once.
+- Untick **Can sign in** to lock someone out without deleting their history.
+- Passwords are stored only as salted hashes in the Users tab (`passwordHash`, `salt`) — nobody, including the HOD, can read them. Importing or exporting the Users table never includes or overwrites passwords.
+- Five wrong passwords in a row lock that username for 10 minutes. A sign-in lasts 12 hours (or until the browser tab is closed).
+- If you also set up Google sign-in, use the person’s school email as their username and they can use either way to sign in.
 
 **Hazcards.** CLEAPSS hazcards are copyright CLEAPSS and for members only, so they are not in this repository. To make them pop up:
 
