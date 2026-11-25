@@ -1,0 +1,62 @@
+import { db, session, call } from '../store.js';
+import { esc, nice, hazcardsFor, roomName } from '../logic.js';
+import { $, hazcardModal, promptBox, toast, confirmBox } from '../ui.js';
+import { go, reload } from '../app.js';
+
+const st = { grade: 'All', topic: 'All', q: '', sel: null };
+
+export async function render(el) {
+  const runs = id => db.requests.filter(r => r.practicalId === id && !['draft', 'cancelled', 'rejected'].includes(r.status)).sort((a, b) => b.date.localeCompare(a.date));
+  const grades = ['All', ...[...new Set(db.library.map(p => Number(p.grade)).filter(Boolean))].sort((a, b) => a - b)];
+  const byGrade = db.library.filter(p => st.grade === 'All' || Number(p.grade) === st.grade);
+  const topics = ['All', ...new Set(byGrade.map(p => p.topic).filter(Boolean))];
+  const list = byGrade.filter(p => (st.topic === 'All' || p.topic === st.topic) && (!st.q || (p.title + ' ' + p.topic + ' ' + p.subject).toLowerCase().includes(st.q.toLowerCase())));
+  const sel = db.library.find(p => p.id === st.sel) || list[0];
+  const canEdit = session.me.role !== 'teacher';
+  const chip = (on, label, attr) => `<button class="chip${on ? ' on' : ''}" ${attr}>${esc(label)}</button>`;
+  el.innerHTML = `<div class="page">
+    <div class="row between wrap"><div><h1 class="h1">Practical library</h1><p class="muted">Every practical we’ve run, by grade and topic. Pick one to start your order.</p></div>
+    ${canEdit ? '<button class="btn" id="newP">+ Add practical</button>' : ''}</div>
+    <div class="row gap wrap"><input id="q" type="search" placeholder="Search: density, titration, osmosis…" value="${esc(st.q)}" class="grow" style="max-width:360px">
+      <div class="chips">${grades.map(g => chip(st.grade === g, g === 'All' ? 'All grades' : 'G' + g, `data-g="${g}"`)).join('')}</div></div>
+    <div class="chips"><span class="muted small">Topic</span>${topics.map(t => chip(st.topic === t, t === 'All' ? 'All topics' : t, `data-t="${esc(t)}"`)).join('')}</div>
+    <div class="cols">
+      <section class="grid-cards grow">${list.map(p => { const r = runs(p.id); return `<button class="pcard${sel && p.id === sel.id ? ' on' : ''}" data-p="${esc(p.id)}">
+        <span class="muted small">G${esc(p.grade)} · ${esc(p.subject)}</span><strong>${esc(p.title)}</strong><span class="muted small">${esc(p.topic || '')}</span>
+        <span class="row between small"><span>Done ${r.length}×</span><span>${r[0] ? 'Last: ' + esc(nice(r[0].date)) : 'Not run yet'}</span></span></button>`; }).join('') || '<p class="muted">No practicals for this grade and topic yet.</p>'}</section>
+      ${sel ? detail(sel, runs(sel.id), canEdit) : ''}
+    </div></div>`;
+  $('#q').oninput = e => { st.q = e.target.value; const pos = e.target.selectionStart; render(el).then(() => { const i = $('#q'); i.focus(); i.setSelectionRange(pos, pos); }); };
+  el.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { st.grade = b.dataset.g === 'All' ? 'All' : Number(b.dataset.g); st.topic = 'All'; render(el); });
+  el.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { st.topic = b.dataset.t; render(el); });
+  el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { st.sel = b.dataset.p; render(el); });
+  const use = $('#useP'); if (use) use.onclick = async () => {
+    const cards = hazcardsFor(db, sel.kit);
+    if (cards.length && !(await hazcardModal(cards, `READ BEFORE ORDERING · ${cards.length} HAZCARD${cards.length > 1 ? 'S' : ''}`, 'I’ve read these — continue'))) return;
+    go('#/order?practical=' + encodeURIComponent(sel.id));
+  };
+  el.querySelectorAll('[data-hz]').forEach(b => b.onclick = () => { const cards = hazcardsFor(db, sel.kit); const i = cards.findIndex(c => c.code === b.dataset.hz); hazcardModal(cards.slice(i).concat(cards.slice(0, i)), 'HAZCARD'); });
+  const ed = $('#editP'); if (ed) ed.onclick = () => edit(sel);
+  const np = $('#newP'); if (np) np.onclick = () => edit({});
+  const del = $('#delP'); if (del) del.onclick = async () => { if (await confirmBox('Remove this practical from the library?', 'Remove')) { await call('remove', { table: 'Library', key: sel.id }); st.sel = null; reload(); } };
+  async function edit(p) {
+    const v = await promptBox(p.id ? 'Edit practical' : 'New practical', [
+      { name: 'title', label: 'Name', value: p.title }, { name: 'grade', label: 'Grade', type: 'number', value: p.grade }, { name: 'subject', label: 'Subject', value: p.subject },
+      { name: 'course', label: 'Course (IGCSE, A Level, IB…)', value: p.course }, { name: 'topic', label: 'Topic', value: p.topic },
+      { name: 'prepMinutes', label: 'Prep time (minutes)', type: 'number', value: p.prepMinutes }, { name: 'method', label: 'Method sheet link', value: p.method }]);
+    if (!v) return; await call('upsert', { table: 'Library', row: { ...p, ...v, grade: Number(v.grade) || v.grade, kit: p.kit || [] } }); toast('Saved'); reload();
+  }
+}
+
+function detail(p, runs, canEdit) {
+  const cards = hazcardsFor(db, p.kit);
+  return `<aside class="card side stack">
+    <div><div class="muted small">G${esc(p.grade)} · ${esc(p.subject)}${p.course ? ' · ' + esc(p.course) : ''}</div><h2 class="h2">${esc(p.title)}</h2>${p.topic ? `<div class="muted small">Topic: ${esc(p.topic)}</div>` : ''}</div>
+    <div><h3 class="h3">Per group</h3><ul class="small">${p.kit.map(k => `<li>${esc(k.perGroup)} × ${esc(k.name)}</li>`).join('') || '<li class="muted">No kit listed yet</li>'}</ul></div>
+    ${cards.length ? `<div class="chips"><span class="kicker danger">Hazcards</span>${cards.map(c => `<button class="chip danger" data-hz="${esc(c.code)}">${esc(c.code)}${c.title ? ' · ' + esc(c.title) : ''}</button>`).join('')}</div>` : ''}
+    <div><h3 class="h3">Done before</h3>${runs.length ? runs.slice(0, 8).map(r => `<div class="hist"><strong>${esc(nice(r.date))}</strong><span>${esc(r.class)} · ${esc(r.teacher)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} sets</span><span class="pill">${r.rating ? '★ ' + esc(r.rating) : esc(r.status)}</span></div>`).join('') : '<p class="muted small">Not run yet.</p>'}</div>
+    ${p.method ? `<a href="${esc(p.method)}" target="_blank" rel="noopener">Method sheet</a>` : ''}
+    <button class="btn pri big" id="useP">Use for my order</button>
+    ${canEdit ? '<div class="row gap"><button class="btn small" id="editP">Edit</button><button class="btn small danger-outline" id="delP">Remove</button></div>' : ''}
+  </aside>`;
+}
