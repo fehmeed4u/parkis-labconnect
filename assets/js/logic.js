@@ -78,6 +78,16 @@ export function hazcardsFor(db, kit) {
   return [...codes].map(c => db.hazcards.find(h => h.code === c) || { code: c, title: '', url: '' });
 }
 
+/** Where a request is on the 7-step path Draft › Submitted › Accepted › In prep › Ready › In use › Closed. */
+export const STAGES = ['Draft', 'Submitted', 'Accepted', 'In prep', 'Ready', 'In use', 'Closed'];
+export function stageOf(r, today = iso(new Date())) {
+  if (r.status === 'done') return 7;
+  if (r.status === 'ready') return r.date === today ? 6 : r.date < today ? 7 : 5;
+  return { draft: 1, submitted: 2, accepted: 3, in_progress: 4 }[r.status] || 1;
+}
+/** 0 not started, 1 in progress, 2 prepared — the technicians' traffic light. */
+export const prepOf = r => r.status === 'done' || r.status === 'ready' ? 2 : r.status === 'in_progress' ? 1 : Number(r.prep) || 0;
+
 export function gradeOf(cls) { const m = String(cls || '').match(/(\d+)/); return m ? Number(m[1]) : ''; }
 
 /** Simple CSV (RFC 4180-ish) both ways. */

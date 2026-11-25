@@ -21,11 +21,11 @@ var TABLES = {
   Users:        ['email', 'name', 'role', 'active'],
   Labs:         ['room', 'name', 'building', 'type'],
   Timetable:    ['id', 'teacher', 'day', 'start', 'end', 'subject', 'code', 'class', 'grade', 'course', 'room'],
-  Inventory:    ['id', 'list', 'category', 'name', 'size', 'rooms', 'storage', 'min', 'orderRequired', 'supplier', 'ref', 'hazcards', 'icon', 'photo', 'shelfLife', 'storageGroup', 'notes'],
+  Inventory:    ['id', 'list', 'category', 'name', 'size', 'rooms', 'storage', 'min', 'orderRequired', 'supplier', 'ref', 'hazcards', 'icon', 'photo', 'shelfLife', 'storageGroup', 'notes', 'orderApproved'],
   InventoryLog: ['at', 'by', 'itemId', 'item', 'room', 'change', 'reason'],
   Hazcards:     ['code', 'title', 'url'],
   Library:      ['id', 'title', 'grade', 'subject', 'course', 'topic', 'kit', 'prepMinutes', 'method'],
-  Requests:     ['id', 'createdAt', 'updatedAt', 'teacherEmail', 'teacher', 'class', 'grade', 'subject', 'date', 'start', 'end', 'room', 'timetabledRoom', 'practicalId', 'title', 'sets', 'kit', 'notes', 'status', 'prep', 'late', 'lateChoice', 'swapWith', 'offer', 'techNotes', 'rating', 'feedback', 'history']
+  Requests:     ['id', 'createdAt', 'updatedAt', 'teacherEmail', 'teacher', 'class', 'grade', 'subject', 'date', 'start', 'end', 'room', 'timetabledRoom', 'practicalId', 'title', 'sets', 'kit', 'notes', 'status', 'prep', 'late', 'lateChoice', 'swapWith', 'offer', 'techNotes', 'rating', 'feedback', 'history', 'query', 'reply', 'hodApproved']
 };
 var JSON_COLS = { rooms: 1, storage: 1, hazcards: 1, kit: 1, history: 1, value: 1 };
 var WRITE_ROLES = {
@@ -136,7 +136,7 @@ function updateRequest_(id, patch, me) {
   try {
     var r = read_('Requests').filter(function (x) { return x.id === id; })[0];
     if (!r) throw new Error('not_found');
-    var teacherFields = ['status', 'rating', 'feedback', 'lateChoice'];
+    var teacherFields = ['status', 'rating', 'feedback', 'lateChoice', 'reply', 'query'];
     if (me.role === 'teacher') {
       if (r.teacherEmail !== me.email) throw new Error('forbidden');
       Object.keys(patch).forEach(function (k) { if (teacherFields.indexOf(k) < 0) throw new Error('forbidden_field:' + k); });
@@ -208,6 +208,7 @@ function sheet_(name) {
   var ss = SpreadsheetApp.getActive();
   var sh = ss.getSheetByName(name);
   if (!sh) { sh = ss.insertSheet(name); sh.getRange(1, 1, 1, TABLES[name].length).setValues([TABLES[name]]).setFontWeight('bold'); sh.setFrozenRows(1); }
+  else if (sh.getLastColumn() < TABLES[name].length) sh.getRange(1, 1, 1, TABLES[name].length).setValues([TABLES[name]]).setFontWeight('bold'); // new columns added in an update
   return sh;
 }
 function enc_(h, v) { if (v === undefined || v === null) return ''; return JSON_COLS[h] || typeof v === 'object' ? JSON.stringify(v) : v; }

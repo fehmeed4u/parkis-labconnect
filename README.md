@@ -2,8 +2,9 @@
 
 A small website for a science department:
 
-- **Teachers** order practicals for their timetabled lessons. They can pick from a library of past practicals and see straight away if equipment clashes with another booking. If their lesson is in a classroom, they can see which labs are free, have a lesson without a practical, or already have a practical booked (and by whom).
-- **Lab technicians** see the week as colour blocks (red = not started, amber = in progress, green = prepared). They can choose from five layouts and three colour schemes. Each request has an accept / change day-time / reject option and a prep sheet with a pick list, where-to-find-it and print labels.
+- **Teachers** order practicals for their timetabled lessons and follow each one through Draft › Submitted › Accepted › In prep › Ready › In use › Closed. Questions from the technicians show up under *Needs your action*. They can pick from a library of past practicals and see straight away if equipment clashes with another booking. If their lesson is in a classroom, they can see which labs are free, have a lesson without a practical, or already have a practical booked (and by whom).
+- **Lab technicians** work from a request queue with the prep sheet beside it (query, reject, or accept and reserve stock; pick list with where-to-find-it; shortages flagged). They also see the week as colour blocks (red = not started, amber = in progress, green = prepared). They can choose from five layouts and three colour schemes. Each request has an accept / change day-time / reject option and a prep sheet with a pick list, where-to-find-it and print labels.
+- **The HOD** gets a department overview: late requests and purchases waiting for approval, stock alerts, technician prep load and how busy each lab is.
 - **Everyone** can see the inventory: room by room, with the cabinet position and a picture. Technicians and the HOD can change it; teachers can only view it.
 - **Booking rule:** requests are due a set number of working days ahead (default 3). Late requests are flagged, and the teacher chooses to talk to the technicians first or to send a draft anyway.
 - **Hazcards:** the CLEAPSS hazcards for every chemical in an order pop up for the teacher when ordering and for the technician when preparing.
@@ -65,6 +66,8 @@ In Apps Script, **Project Settings → Script properties → Add**:
 3. Deploy and copy the **Web app URL** (ends in `/exec`).
 
 When you change `Code.gs` later, use **Deploy → Manage deployments → edit (pencil) → Version: New version** so the URL stays the same.
+
+> **Updating from an earlier version:** the screens update added a few columns (`query`, `reply`, `hodApproved` on Requests and `orderApproved` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
 
 ### 2.5 Switch the site to live
 

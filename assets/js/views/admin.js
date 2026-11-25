@@ -1,41 +1,100 @@
 import { db, call, TABLES, isDemo } from '../store.js';
-import { esc, iso, monday, addDays, ACTIVE, clashes, totalStock, toCSV, fromCSV, nice } from '../logic.js';
-import { $, modal, closeModal, toast, confirmBox, download, statusChip } from '../ui.js';
+import { esc, iso, monday, addDays, ACTIVE, DAYS, labRooms, totalStock, toCSV, fromCSV, nice } from '../logic.js';
+import { $, modal, closeModal, toast, confirmBox, download } from '../ui.js';
 import { reload } from '../app.js';
 
 const JSON_COLS = ['rooms', 'storage', 'hazcards', 'kit', 'history'];
 const KEY = { Settings: 'settings', Users: 'users', Labs: 'labs', Timetable: 'timetable', Inventory: 'inventory', Hazcards: 'hazcards', Library: 'library', Requests: 'requests', InventoryLog: 'log' };
-const st = { tab: 'overview' };
+const PAGES = { overview: ['Department overview', overview], people: ['People & roles', people], settings: ['Rules & lead times', settings], data: ['Import & export', data] };
 
-export async function render(el) {
-  const tabs = [['overview', 'Overview'], ['people', 'People'], ['settings', 'Settings'], ['data', 'Import & export']];
-  el.innerHTML = `<div class="page wide"><h1 class="h1">Head of department</h1>
-    <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${st.tab === k}" data-tab="${k}">${l}</button>`).join('')}</div><div id="pane"></div></div>`;
-  el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { st.tab = b.dataset.tab; render(el); });
-  ({ overview, people, settings, data })[st.tab]($('#pane', el), el);
+export async function render(el, [sub]) {
+  const k = PAGES[sub] ? sub : 'overview';
+  if (k === 'overview') { overview(el); return; }
+  el.innerHTML = `<div class="page"><header class="page-head"><div><div class="eyebrow">Head of department</div><h1 class="h1">${PAGES[k][0]}</h1></div></header><div id="pane" class="stack"></div></div>`;
+  PAGES[k][1]($('#pane', el), el);
 }
 
-function overview(p) {
-  const m = monday(new Date()), from = iso(m), to = iso(addDays(m, 4));
+const periodsPerDay = () => Number(db.settings.periodsPerDay) || 6;
+const prepMin = r => Number(db.library.find(p => p.id === r.practicalId)?.prepMinutes) || 30;
+
+function overview(el) {
+  const today = iso(new Date()); const m = monday(new Date()), from = iso(m), to = iso(addDays(m, 4));
+  const dates = [0, 1, 2, 3, 4].map(i => iso(addDays(m, i)));
   const week = db.requests.filter(r => r.date >= from && r.date <= to && ACTIVE.includes(r.status));
-  const waiting = db.requests.filter(r => r.status === 'submitted' && r.date >= iso(new Date()));
-  const late = db.requests.filter(r => r.late && r.date >= iso(new Date()) && ACTIVE.includes(r.status));
-  const clash = db.requests.filter(r => r.date >= iso(new Date()) && ACTIVE.includes(r.status) && clashes(db, r).length);
-  const low = db.inventory.filter(i => Number(i.min) > 0 && totalStock(i) < Number(i.min));
-  const byT = {}; db.requests.filter(r => ACTIVE.includes(r.status)).forEach(r => byT[r.teacher] = (byT[r.teacher] || 0) + 1);
-  const list = (rows, empty) => rows.length ? `<table class="tbl"><tbody>${rows.slice(0, 8).map(r => `<tr><td>${esc(nice(r.date))} ${esc(r.start)}</td><td>${esc(r.teacher)}</td><td>${esc(r.class)}</td><td>${esc(r.title)}</td><td>${statusChip(r.status)}</td><td><a href="#/prep/${esc(r.id)}">Open</a></td></tr>`).join('')}</tbody></table>` : `<p class="muted">${empty}</p>`;
-  p.innerHTML = `<div class="stats">${[['Practicals this week', week.length], ['Waiting for technicians', waiting.length], ['Booked late', late.length], ['Equipment clashes', clash.length], ['Items below minimum', low.length]].map(([l, n]) => `<div class="stat"><span>${l}</span><strong>${n}</strong></div>`).join('')}</div>
-    <div class="cols"><section class="card"><h2 class="h2">Booked late</h2>${list(late, 'None — everyone booked on time.')}</section>
-    <section class="card"><h2 class="h2">Equipment clashes</h2>${list(clash, 'No clashes.')}</section></div>
-    <div class="cols"><section class="card"><h2 class="h2">Practicals per teacher</h2><table class="tbl"><tbody>${Object.entries(byT).sort((a, b) => b[1] - a[1]).map(([t, n]) => `<tr><td>${esc(t)}</td><td class="num">${n}</td></tr>`).join('') || '<tr><td class="muted">None yet</td></tr>'}</tbody></table></section>
-    <section class="card"><h2 class="h2">Below minimum stock</h2><table class="tbl"><tbody>${low.slice(0, 12).map(i => `<tr><td>${esc(i.name)} ${esc(i.size || '')}</td><td class="num">${totalStock(i)} / ${esc(i.min)}</td></tr>`).join('') || '<tr><td class="muted">All stocked</td></tr>'}</tbody></table><a href="#/inventory">Open inventory</a></section></div>`;
+  const labsUsed = new Set(week.map(r => r.room));
+  const due = week.filter(r => r.date <= today); const onTime = due.filter(r => ['ready', 'done'].includes(r.status));
+  const queried = db.requests.filter(r => (r.query || r.reply) && r.date >= from); const openQ = queried.filter(r => r.query && !['done', 'rejected', 'cancelled'].includes(r.status));
+  const urgent = db.requests.filter(r => r.late && r.date >= today && ['submitted', 'accepted', 'in_progress', 'ready'].includes(r.status));
+  const lateAll = db.requests.filter(r => r.late && ACTIVE.includes(r.status));
+  // approvals
+  const appr = [];
+  db.requests.filter(r => r.late && r.status === 'submitted' && !r.hodApproved && r.date >= today).forEach(r => appr.push({ kind: 'req', id: r.id, tag: ['Urgent', 'urgent'],
+    title: `${r.title} · ${r.class} · ${r.date === iso(addDays(new Date(), 1)) ? 'tomorrow' : nice(r.date)} ${r.start}`, meta: `${r.teacher} · late request${r.notes ? ' · ' + r.notes : ''}` }));
+  db.inventory.filter(i => (i.orderRequired === true || i.orderRequired === 'TRUE') && !i.orderApproved).slice(0, 4).forEach(i => appr.push({ kind: 'buy', id: i.id, tag: ['Purchase', 'purchase'],
+    title: `${Math.max(1, (Number(i.min) || 0) - totalStock(i))} × ${i.name}${i.size ? ', ' + i.size : ''}`, meta: `Marked “order required” · ${i.list}${i.supplier ? ' · ' + i.supplier : ''}` }));
+  // stock alerts
+  const nextFrom = iso(addDays(m, 7)), nextTo = iso(addDays(m, 11));
+  const nextWeek = db.requests.filter(r => r.date >= nextFrom && r.date <= nextTo && ACTIVE.includes(r.status));
+  const low = db.inventory.filter(i => Number(i.min) > 0 && totalStock(i) < Number(i.min))
+    .map(i => ({ i, n: new Set(nextWeek.filter(r => r.kit.some(k => k.itemId === i.id)).map(r => r.class)).size })).sort((a, b) => b.n - a.n).slice(0, 3);
+  const check = db.inventory.filter(i => i.list === 'Chemicals' && /check|\d{4}-\d{2}-\d{2}/i.test(i.shelfLife || '') && totalStock(i) > 0).slice(0, 1);
+  // prep load + lab heatmap
+  const load = dates.map(d => week.filter(r => r.date === d && r.status !== 'done').reduce((s, r) => s + prepMin(r), 0) / 60);
+  const maxLoad = Math.max(8, ...load);
+  const labs = labRooms(db); const per = periodsPerDay();
+  const heat = n => { const x = n / per; return x === 0 ? 'hm0' : x <= .34 ? 'hm1' : x <= .67 ? 'hm2' : 'hm3'; };
+  const hrs = h => (Math.round(h * 2) / 2).toString().replace(/\.0$/, '') + ' h';
+
+  el.innerHTML = `<div class="page">
+    <header class="page-head"><div><div class="eyebrow">Week of ${esc(m.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' }))}${db.settings.schoolName ? ' · ' + esc(db.settings.schoolName) : ''}</div><h1 class="h1">Department overview</h1></div>
+      <button class="btn" id="report">Export term report</button></header>
+    <section class="stats">
+      <div class="stat"><span>Practicals this week</span><strong>${week.length}</strong><span class="sub">across ${labsUsed.size} lab${labsUsed.size === 1 ? '' : 's'}</span></div>
+      <div class="stat"><span>Ready on time</span><strong>${onTime.length} / ${due.length}</strong><span class="sub">so far this week</span></div>
+      <div class="stat"><span>Requests queried</span><strong>${queried.length}</strong><span class="sub">${openQ.length} still open</span></div>
+      <div class="stat"><span>Urgent requests</span><strong>${urgent.length}</strong><span class="sub">booked late · ${lateAll.length} in total</span></div>
+    </section>
+    <div class="cols">
+      <div class="main-col">
+        <section class="card"><div class="card-head" style="margin-bottom:8px"><h2 class="h2">Waiting for you</h2><a href="#/requests" class="small">All requests</a></div>
+          ${appr.length ? appr.slice(0, 6).map(a => `<div class="appr"><div><span class="pill ${a.tag[1]}">${a.tag[0]}</span><div class="t">${esc(a.title)}</div><div class="m">${esc(a.meta)}</div></div>
+            <div class="row gap">${a.kind === 'req' ? `<a class="btn small" href="#/requests/${esc(a.id)}">Open</a>` : ''}<button class="btn small" data-decline="${a.kind}:${esc(a.id)}">Decline</button><button class="btn pri small" data-approve="${a.kind}:${esc(a.id)}">Approve</button></div></div>`).join('')
+            : '<p class="muted">Nothing waiting — no late requests or purchases to approve.</p>'}
+        </section>
+        <section class="card"><h2 class="h2">Lab bookings this week</h2><p class="muted small" style="margin:4px 0 12px">Periods booked for practicals, out of ${per} per day</p>
+          <div class="scroll"><table class="heat"><thead><tr><th>Lab</th>${DAYS.map(d => `<th>${d}</th>`).join('')}</tr></thead><tbody>
+          ${labs.map(l => `<tr><td class="lab strong">${esc(l.name)}</td>${dates.map(d => { const n = week.filter(r => r.room === l.room && r.date === d).length; return `<td class="${heat(n)}" title="${esc(l.name)} ${esc(nice(d))}: ${n} of ${per}">${n}/${per}</td>`; }).join('')}</tr>`).join('')}
+          </tbody></table></div></section>
+      </div>
+      <aside class="side-col" style="gap:24px">
+        <section class="card"><h2 class="h2" style="margin-bottom:14px">Stock alerts</h2><div class="alerts">
+          ${low.map(({ i, n }) => `<div><b>${esc(i.name)}${i.size ? ', ' + esc(i.size) : ''}</b><span>${totalStock(i)} left · min ${esc(i.min)}${n ? ` · needed by ${n} class${n > 1 ? 'es' : ''} next week` : ''}</span></div>`).join('')}
+          ${check.map(i => `<div><b>${esc(i.name)}${i.size ? ' ' + esc(i.size) : ''}</b><span class="bad">Shelf-life: ${esc(i.shelfLife)}${i.hazcards.length ? ' · hazcard ' + esc(i.hazcards.join(', ')) : ''}</span></div>`).join('')}
+          ${!low.length && !check.length ? '<p class="muted small">All stocked.</p>' : ''}
+          <a href="#/inventory?flag=low" class="small">Open inventory</a></div></section>
+        <section class="card"><h2 class="h2">Technician prep load</h2><p class="muted small" style="margin:4px 0 14px">Estimated hours, from the practical library</p>
+          <div class="bars">${DAYS.map((d, i) => `<span>${d}</span><span class="bar"><i class="${load[i] > 6 ? 'hot' : ''}" style="width:${Math.round(load[i] / maxLoad * 100)}%"></i></span><span class="right strong">${hrs(load[i])}</span>`).join('')}</div></section>
+      </aside>
+    </div></div>`;
+
+  el.querySelector('#report').onclick = () => download(`practicals-report-${today}.csv`, toCSV(db.requests.filter(r => r.status !== 'draft').map(r => ({ date: r.date, start: r.start, end: r.end, teacher: r.teacher, class: r.class, subject: r.subject, room: r.room, practical: r.title, sets: r.sets, status: r.status, late: r.late, rating: r.rating || '', feedback: r.feedback || '' }))), 'text/csv');
+  const act = async (spec, ok) => {
+    const [kind, id] = spec.split(':');
+    try {
+      if (kind === 'req') await call('updateRequest', { id, patch: ok ? { hodApproved: true } : { status: 'rejected', techNotes: 'Declined by the head of department' } });
+      else { const i = db.inventory.find(x => x.id === id); await call('upsert', { table: 'Inventory', row: ok ? { ...i, orderApproved: true } : { ...i, orderRequired: false } }); }
+      toast(ok ? 'Approved' : 'Declined'); await reload();
+    } catch (e) { toast(e.message, 'bad'); }
+  };
+  el.querySelectorAll('[data-approve]').forEach(b => b.onclick = () => act(b.dataset.approve, true));
+  el.querySelectorAll('[data-decline]').forEach(b => b.onclick = async () => { if (await confirmBox('Decline this?', 'Decline')) act(b.dataset.decline, false); });
 }
 
 function people(p, root) {
   const ROLES = [['teacher', 'Teacher'], ['technician', 'Lab technician'], ['admin', 'Admin (HOD)']];
-  p.innerHTML = `<div class="row between"><p class="muted">Only people listed here (and active) can sign in. The name must match the timetable so their lessons appear.</p><button class="btn pri" id="addu">+ Add person</button></div>
-    <table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Active</th><th></th></tr></thead><tbody>
-    ${db.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email || '— add email —')}</td><td>${esc((ROLES.find(r => r[0] === u.role) || [, u.role])[1])}</td><td>${u.active === false || u.active === 'FALSE' ? 'No' : 'Yes'}</td><td class="right"><button class="linkbtn" data-u="${esc(u.email || u.name)}">Edit</button></td></tr>`).join('')}</tbody></table>`;
+  p.innerHTML = `<div class="row between wrap"><p class="muted">Only people listed here (and active) can sign in. The name must match the timetable so their lessons appear.</p><button class="btn pri" id="addu">+ Add person</button></div>
+    <section class="card flush scroll"><table class="tbl"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Active</th><th></th></tr></thead><tbody>
+    ${db.users.map(u => `<tr><td>${esc(u.name)}</td><td>${esc(u.email || '— add email —')}</td><td>${esc((ROLES.find(r => r[0] === u.role) || [, u.role])[1])}</td><td>${u.active === false || u.active === 'FALSE' ? 'No' : 'Yes'}</td><td class="right"><button class="linkbtn" data-u="${esc(u.email || u.name)}">Edit</button></td></tr>`).join('')}</tbody></table></section>`;
   const teachers = [...new Set(db.timetable.map(t => t.teacher))].sort();
   const edit = u => {
     const d = modal(`<div class="row between"><h2 class="h2">${u.name ? 'Edit person' : 'Add person'}</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
@@ -65,20 +124,21 @@ function settings(p) {
     <label class="fld">School name<input name="schoolName" value="${esc(s.schoolName || '')}"></label>
     <label class="fld">Working days technicians need before a practical<input name="leadDays" type="number" min="0" max="10" value="${esc(s.leadDays)}"></label>
     <p class="muted small">With 3: a Monday practical must be booked by the end of the Wednesday before. Weekends and the holidays below are skipped.</p>
+    <label class="fld">Lesson periods per day (for the lab-booking chart)<input name="periodsPerDay" type="number" min="1" max="12" value="${esc(s.periodsPerDay || 6)}"></label>
     <div class="grid2"><label class="fld">Day starts<input name="dayStart" type="time" value="${esc(s.dayStart || '08:30')}"></label><label class="fld">Day ends<input name="dayEnd" type="time" value="${esc(s.dayEnd || '16:00')}"></label></div>
     <label class="fld">Holidays and non-working days (one date per line, YYYY-MM-DD)<textarea name="holidays" rows="6">${esc((s.holidays || []).join('\n'))}</textarea></label>
     <div class="row end"><button class="btn pri">Save settings</button></div></form>`;
   $('#sf', p).onsubmit = async e => {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
     const holidays = f.holidays.split(/[\s,]+/).map(x => x.trim()).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x));
-    const row = { schoolName: f.schoolName, leadDays: Number(f.leadDays) || 3, dayStart: f.dayStart, dayEnd: f.dayEnd, holidays };
+    const row = { schoolName: f.schoolName, leadDays: Number(f.leadDays) || 3, periodsPerDay: Number(f.periodsPerDay) || 6, dayStart: f.dayStart, dayEnd: f.dayEnd, holidays };
     try { await call('importTable', { table: 'Settings', rows: { ...db.settings, ...row }, mode: 'replace' }); toast('Settings saved'); await reload(); } catch (err) { toast(err.message, 'bad'); }
   };
 }
 
 function data(p) {
   const opts = TABLES.map(t => `<option>${t}</option>`).join('');
-  p.innerHTML = `<div class="cols"><section class="card stack"><h2 class="h2">Export</h2><p class="muted">Download one table, or everything as a single backup file.</p>
+  p.innerHTML = `<div class="cols halves"><section class="card stack"><h2 class="h2">Export</h2><p class="muted">Download one table, or everything as a single backup file.</p>
       <label class="fld">Table<select id="et">${opts}</select></label>
       <div class="row gap wrap"><button class="btn" id="ejson">Download JSON</button><button class="btn" id="ecsv">Download CSV (opens in Excel)</button></div>
       <hr><button class="btn pri" id="eall">Download full backup</button></section>

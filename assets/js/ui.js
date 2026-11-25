@@ -38,27 +38,31 @@ export function promptBox(title, fields, okLabel = 'Save') {
 }
 
 /** Steps through hazcards. Resolves true when the reader has gone through all of them. */
-export function hazcardModal(cards, headline, doneLabel = 'I’ve read these') {
+export function hazcardModal(cards, headline, doneLabel = 'I’ve read these', uses = {}) {
   return new Promise(res => {
     let i = 0;
+    const isImg = u => /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(u || '');
     const draw = d => {
       const c = cards[i];
-      d.innerHTML = `<div class="row between"><div><div class="kicker danger">${esc(headline)}</div>
-        <h2 class="h2">Hazcard ${esc(c.code)}${c.title ? ' · ' + esc(c.title) : ''}</h2></div><button class="icon-btn" data-close aria-label="Close">×</button></div>
-        <div class="chips">${cards.map((x, j) => `<button class="chip${j === i ? ' on danger' : ''}" data-i="${j}">${esc(x.code)}</button>`).join('')}</div>
-        ${c.url ? `<iframe class="hazframe" src="${esc(c.url)}" title="Hazcard ${esc(c.code)}"></iframe>`
+      d.innerHTML = `<div class="row between" style="align-items:flex-start"><div><div class="kicker danger">${esc(headline)}</div>
+        <h2 class="h2" style="margin-top:4px">Hazcard ${esc(c.code)}${c.title ? ' · ' + esc(c.title) : ''}</h2>
+        ${uses[c.code] ? `<div class="muted small">Used here for: ${esc(uses[c.code])}</div>` : ''}</div><button class="icon-btn b" data-close aria-label="Close">×</button></div>
+        <div class="chips" role="group" aria-label="Hazcards">${cards.map((x, j) => `<button class="chip danger${j === i ? ' on' : ''}" aria-pressed="${j === i}" data-i="${j}">${esc(x.code)}${x.title ? ' · ' + esc(shortTitle(x.title)) : ''}</button>`).join('')}</div>
+        ${c.url ? (isImg(c.url) ? `<img class="hazimg" src="${esc(c.url)}" alt="CLEAPSS Hazcard ${esc(c.code)}">` : `<iframe class="hazframe" src="${esc(c.url)}" title="Hazcard ${esc(c.code)}"></iframe>`)
                : `<div class="empty">The card file for ${esc(c.code)} isn’t linked yet. Ask the HOD to run <code>linkHazcards</code> (see README) or read the paper card in the prep room.</div>`}
-        <div class="row between"><span class="muted">${i + 1} of ${cards.length}</span>
-        <button class="btn pri" id="hzNext">${i < cards.length - 1 ? 'Next hazcard' : esc(doneLabel)}</button></div>`;
+        <div class="row between"><span class="muted xs">Your school’s CLEAPSS Hazcards · ${i + 1} of ${cards.length}</span>
+        <button class="btn pri big" id="hzNext">${i < cards.length - 1 ? 'Next hazcard' : esc(doneLabel)}</button></div>`;
       d.querySelectorAll('[data-i]').forEach(b => b.onclick = () => { i = Number(b.dataset.i); draw(d); });
       d.querySelector('#hzNext').onclick = () => { if (i < cards.length - 1) { i++; draw(d); } else { closeModal(); res(true); } };
     };
     const d = modal('', { wide: true, onClose: () => res(false) }); draw(d);
   });
 }
+const shortTitle = t => String(t).split(/ and | & |, /)[0];
 
-export const statusLabel = { draft: 'Draft', submitted: 'Waiting for technicians', accepted: 'Accepted', in_progress: 'In preparation', ready: 'Ready', done: 'Done', rejected: 'Rejected', cancelled: 'Cancelled' };
-export const statusChip = s => `<span class="pill st-${esc(s)}">${esc(statusLabel[s] || s)}</span>`;
+export const statusLabel = { draft: 'Draft', submitted: 'Submitted', accepted: 'Accepted', in_progress: 'In prep', ready: 'Ready', done: 'Closed', rejected: 'Rejected', cancelled: 'Cancelled', queried: 'Queried' };
+/** Status chip. Pass a request to show “Queried” when the technicians asked something. */
+export const statusChip = (s, r) => { if (r && r.query && !['done', 'rejected', 'cancelled'].includes(s)) s = 'queried'; return `<span class="pill st-${esc(s)}">${esc(statusLabel[s] || s)}</span>`; };
 export const iconImg = (item, size = 40) => item.photo ? `<img src="${esc(item.photo)}" alt="" width="${size}" height="${size}" class="thumb">`
   : item.icon ? `<img src="assets/icons/${esc(item.icon)}.svg" alt="" width="${size}" height="${size}" class="thumb icon">` : `<span class="thumb none" style="width:${size}px;height:${size}px">?</span>`;
 export function download(name, text, type = 'application/json') {
