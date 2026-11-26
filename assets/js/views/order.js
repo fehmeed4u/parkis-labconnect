@@ -2,6 +2,7 @@ import { db, session, call } from '../store.js';
 import { esc, nice, niceLong, deadline, isLate, isLabRoom, labStatus, clashes, hazcardsFor, roomName, totalStock, iso, addDays, monday, min, fmtMin, dayCode, isSchoolDay, parse, DAYS, gradeOf } from '../logic.js';
 import { $, modal, closeModal, toast, hazcardModal, statusChip } from '../ui.js';
 import { go, reload } from '../app.js';
+import * as aiImport from './aiimport.js';
 
 /*
   Ordering a practical, in three steps (all on #/order, steered by the query string):
@@ -38,6 +39,8 @@ export async function render(el, _rest, q) {
   const lesson = lessonAt(teacher, q.get('date'), q.get('start')) || (editing && editing.date === q.get('date') && editing.start === q.get('start') ? editing : null);
   if (!lesson) { go(orderLink(q, { date: null, start: null })); return; }
   if (!editing && !q.get('mode') && !q.get('practical')) return chooseStart(el, q, teacher, lesson);
+  if (!editing && q.get('mode') === 'ai') return fromAI(el, q, teacher, lesson);
+  if (!editing && q.get('mode') === 'ai-form' && (!S || S._for !== formKey(q, teacher))) { go(orderLink(q, { mode: 'ai' })); return; }
   return form(el, q, editing, teacher, lesson);
 }
 
@@ -105,6 +108,22 @@ function pickLesson(el, q, teacher, editing) {
   el.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { const [date, start] = b.dataset.pick.split('|'); go(orderLink(q, { date, start, pick: null, teacher: isTeacher || editing ? null : teacher })); });
 }
 
+const formKey = (q, teacher) => q.get('id') || [teacher, q.get('date'), q.get('start'), q.get('practical'), q.get('mode')].join('|');
+const libKit = (kit, sets) => kit.map(k => ({ itemId: k.itemId, name: k.name, perGroup: k.perGroup, fixed: !!k.fixed, qty: k.fixed ? k.perGroup : k.perGroup * sets }));
+
+/* ---------------- step 2b: bring a practical from AI ---------------- */
+function fromAI(el, q, teacher, l) {
+  aiImport.render(el, {
+    lesson: l, teacher, key: [teacher, l.date, l.start].join('|'),
+    back: orderLink(q, { mode: null }), lessonCard: lessonCard(l, q, teacher),
+    onUse: d => {
+      const fq = new URLSearchParams(q.toString()); fq.set('mode', 'ai-form');
+      S = { teacher, title: d.title, topic: d.topic, sets: d.sets, kit: d.kit, practicalId: '', notes: d.notes, lateChoice: '', fromAI: true, _for: formKey(fq, teacher) };
+      go(orderLink(q, { mode: 'ai-form' }));
+    }
+  });
+}
+
 /* ---------------- step 2: how to start ---------------- */
 function chooseStart(el, q, teacher, l) {
   const late = isLate(l.date, db.settings); const orders = ordersFor(teacher, l.date, l.start);
@@ -124,6 +143,10 @@ function chooseStart(el, q, teacher, l) {
         <span class="opt-ic" aria-hidden="true">📚</span><strong>From the practical library</strong>
         <span class="muted">Reuse a practical we’ve run before. Its kit and number of sets are filled in, and you can edit or adapt anything before sending.${libForGrade ? ` ${libForGrade} for Grade ${esc(l.grade || gradeOf(l.class))}.` : ''}</span>
         <span class="opt-go">Browse the library ›</span></a>
+      <a class="opt" href="${orderLink(q, { mode: 'ai' })}">
+        <span class="row between" style="align-items:flex-start"><span class="opt-ic" aria-hidden="true">📋</span><span class="pill new">New</span></span><strong>Bring a practical from AI</strong>
+        <span class="muted">Found a good PDF or idea? Copy our prompt into ChatGPT, Gemini or Claude with it, paste the answer back, and see what we have and what’s missing.</span>
+        <span class="opt-go">Copy the prompt ›</span></a>
       <div class="opt locked" aria-disabled="true">
         <span class="row between" style="align-items:flex-start"><span class="opt-ic" aria-hidden="true">✨</span><span class="pill restricted">🔒 Coming soon</span></span><strong>Use AI to request this lab</strong>
         <span class="muted">Describe what you want students to do, and AI drafts the practical, equipment list and hazards for you to check.</span>
@@ -148,12 +171,12 @@ const weekOffset = date => Math.max(0, Math.round((monday(parse(date)) - monday(
 /* ---------------- step 3: the request form ---------------- */
 function form(el, q, editing, teacher, lesson) {
   const me = session.me;
-  const key = q.get('id') || [teacher, q.get('date'), q.get('start'), q.get('practical'), q.get('mode')].join('|');
+  const key = formKey(q, teacher);
   if (!S || S._for !== key) {
     const p = q.get('practical') ? db.library.find(x => x.id === q.get('practical')) : null;
     S = editing ? JSON.parse(JSON.stringify(editing)) : { teacher, kit: [], sets: 6, title: p?.title || '', practicalId: p?.id || '', notes: '', lateChoice: '' };
     if (p && !editing) { const last = db.requests.filter(r => r.practicalId === p.id && Number(r.sets) > 0).sort((a, b) => b.date.localeCompare(a.date))[0]; if (last) S.sets = Number(last.sets);
-      S.kit = p.kit.map(k => ({ itemId: k.itemId, name: k.name, perGroup: k.perGroup, qty: k.perGroup * S.sets })); }
+      S.kit = libKit(p.kit, S.sets); }
     if (editing) S.kit.forEach(k => { k.perGroup = k.perGroup || Math.max(1, Math.round(k.qty / (S.sets || 1))); });
     S._for = key;
   }
@@ -169,7 +192,7 @@ function form(el, q, editing, teacher, lesson) {
   const clash = clashes(db, { ...S, kit: S.kit });
   const lib = db.library.slice().sort((a, b) => a.title.localeCompare(b.title));
   const fromLib = S.practicalId && db.library.find(p => p.id === S.practicalId);
-  const back = editing ? (me.role === 'teacher' ? '#/home' : '#/requests/' + editing.id) : orderLink(q, { mode: null, practical: null });
+  const back = editing ? (me.role === 'teacher' ? '#/home' : '#/requests/' + editing.id) : q.get('mode') === 'ai-form' ? orderLink(q, { mode: 'ai' }) : orderLink(q, { mode: null, practical: null });
 
   el.innerHTML = `<div class="page">
     <div><a href="${back}" class="small">‹ ${editing ? 'Back' : 'Back to how to start'}</a>
@@ -199,15 +222,16 @@ function form(el, q, editing, teacher, lesson) {
 
         <section class="card stack">
           <div class="row between wrap"><h2 class="h2">Practical and equipment</h2>${!editing ? `<a class="small" href="#/library?${new URLSearchParams({ order: orderLink(q, { mode: null, practical: null }).slice(1), grade: S.grade || gradeOf(S.class) || '' })}">Pick from the library instead</a>` : ''}</div>
+          ${S.fromAI ? `<div class="note ok">Planned with AI. Check the quantities and the notes (method, safety, disposal) before you send it — it’s your request.${S.kit.some(k => !k.itemId) ? ' Items marked “Not in our inventory” will need to be sourced by the technicians.' : ''}</div>` : ''}
           ${fromLib ? `<div class="note ok">From the library: <strong>${esc(fromLib.title)}</strong>. The kit and sets are from last time — change anything you need.</div>` : ''}
           <div class="grid2"><label class="fld">Practical<select id="practical"><option value="">— New practical (type the name below) —</option>${lib.map(p => `<option value="${esc(p.id)}"${p.id === S.practicalId ? ' selected' : ''}>${esc(p.title)} · G${esc(p.grade)} ${esc(p.subject)}</option>`).join('')}</select></label>
           <label class="fld">Number of sets<input id="sets" type="number" min="1" max="40" value="${esc(S.sets)}"></label></div>
           <label class="fld"${S.practicalId ? ' hidden' : ''}>Practical name<input id="title" value="${esc(S.title)}" required placeholder="e.g. Sound waves on an oscilloscope"></label>
           <div class="scroll"><table class="tbl"><thead><tr><th>Item</th><th>Per group</th><th>Needed</th><th>Free at that time</th><th></th></tr></thead><tbody>
           ${S.kit.map((k, i) => { const it = db.inventory.find(x => x.id === k.itemId); const c = clash.find(x => x.item.id === k.itemId);
-            const free = !it ? '' : it.list !== 'Equipment' ? '<span class="muted">—</span>' : c ? `<span class="bad-t">Only ${Math.max(0, c.have - c.used)} of ${c.have} free</span>` : '<span class="ok-t strong">Free</span>';
+            const free = !it ? '<span class="bad-t">Not in our inventory</span>' : it.list !== 'Equipment' ? '<span class="muted">—</span>' : c ? `<span class="bad-t">Only ${Math.max(0, c.have - c.used)} of ${c.have} free</span>` : '<span class="ok-t strong">Free</span>';
             return `<tr><td>${esc(k.name)}${it?.hazcards?.length ? ` <span class="pill danger">Hazcard ${esc(it.hazcards.join(', '))}</span>` : ''}</td>
-            <td><input class="num" type="number" min="0" step="any" value="${esc(k.perGroup)}" data-pg="${i}" aria-label="Per group"></td><td class="strong">${esc(k.qty)}</td><td>${free}</td>
+            <td>${k.fixed ? '<span class="muted small">teacher only</span>' : `<input class="num" type="number" min="0" step="any" value="${esc(k.perGroup)}" data-pg="${i}" aria-label="Per group">`}</td><td class="strong">${esc(k.qty)}</td><td>${free}</td>
             <td><button type="button" class="icon-btn" data-rm="${i}" aria-label="Remove ${esc(k.name)}">×</button></td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">No items yet — add the equipment and chemicals you need.</td></tr>'}
           </tbody></table></div>
           <div class="add-row"><input id="addItem" list="invList" placeholder="Type to search the inventory…" aria-label="Equipment to add"><datalist id="invList">${db.inventory.map(i => `<option value="${esc(i.name + (i.size ? ' · ' + i.size : '') + ' [' + i.id + ']')}">`).join('')}</datalist><button type="button" class="btn" id="addBtn">+ Add equipment</button></div>
@@ -230,12 +254,12 @@ function form(el, q, editing, teacher, lesson) {
       </aside>
     </div></div>`;
 
-  const sync = () => { S.title = $('#title').value; S.sets = Math.max(1, Number($('#sets').value) || 1); S.notes = $('#notes').value; S.kit.forEach(k => k.qty = round(k.perGroup * S.sets)); };
+  const sync = () => { S.title = $('#title').value; S.sets = Math.max(1, Number($('#sets').value) || 1); S.notes = $('#notes').value; S.kit.forEach(k => { if (!k.fixed) k.qty = round(k.perGroup * S.sets); }); };
   const rerender = () => { sync(); form(el, q, editing, teacher, lesson); };
   el.querySelectorAll('[data-lab]').forEach(b => b.onclick = () => { S.room = b.dataset.lab; rerender(); });
   el.querySelectorAll('[data-late]').forEach(b => b.onclick = () => { S.lateChoice = b.dataset.late; rerender(); });
   $('#practical').onchange = e => { const p = db.library.find(x => x.id === e.target.value); sync();
-    if (p) { S.practicalId = p.id; S.title = p.title; S.kit = p.kit.map(k => ({ itemId: k.itemId, name: k.name, perGroup: k.perGroup, qty: k.perGroup * S.sets })); } else { S.practicalId = ''; S.title = ''; } form(el, q, editing, teacher, lesson); };
+    if (p) { S.practicalId = p.id; S.title = p.title; S.kit = libKit(p.kit, S.sets); } else { S.practicalId = ''; S.title = ''; } form(el, q, editing, teacher, lesson); };
   // redraw after the event finishes, so a blur fired while the old inputs are removed can't redraw twice
   const later = f => setTimeout(f, 0);
   $('#sets').onchange = () => later(rerender);
@@ -264,12 +288,12 @@ function form(el, q, editing, teacher, lesson) {
 
   async function save(status) {
     sync();
-    const r = { ...S }; delete r._for; r.status = status; r.late = !!late;
+    const r = { ...S }; delete r._for; delete r.topic; delete r.fromAI; r.status = status; r.late = !!late;
     r.kit = S.kit.map(({ itemId, name, qty }) => ({ itemId, name, qty }));
     r.prep = r.prep || 0;
     try {
       if (!r.practicalId && status !== 'draft') {
-        const p = await call('upsert', { table: 'Library', row: { title: r.title, grade: r.grade, subject: r.subject, course: '', topic: '', kit: S.kit.map(k => ({ itemId: k.itemId, name: k.name, perGroup: k.perGroup })), prepMinutes: '', method: '' } });
+        const p = await call('upsert', { table: 'Library', row: { title: r.title, grade: r.grade, subject: r.subject, course: '', topic: S.topic || '', kit: S.kit.map(k => k.fixed ? { itemId: k.itemId, name: k.name, perGroup: k.qty, fixed: true } : { itemId: k.itemId, name: k.name, perGroup: k.perGroup }), prepMinutes: '', method: '' } });
         r.practicalId = p.id;
       }
       await call('saveRequest', { request: r });

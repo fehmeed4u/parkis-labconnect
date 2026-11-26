@@ -433,7 +433,7 @@ button.stat { cursor: pointer; } button.stat:hover { border-color: var(--line-2)
 .tt-legend i.has { background: var(--surface); box-shadow: inset 0 0 0 2px var(--pri); }
 .lesson-sum { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; padding: 18px 22px; }
 .ls-main { font-family: var(--display); font-size: 20px; font-weight: 600; margin: 2px 0; }
-.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr)); gap: 16px; }
 .opt { display: flex; flex-direction: column; gap: 8px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 24px; color: var(--ink); text-decoration: none; min-height: 220px; }
 a.opt:hover { border-color: var(--pri); box-shadow: 0 0 0 2px var(--pri-soft); color: var(--ink); }
 .opt strong { font-size: 17px; }
