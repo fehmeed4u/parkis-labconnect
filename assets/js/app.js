@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { db, session, refresh, isDemo, demoUsers, resetDemo, login, logout, changePassword } from './store.js';
+import { db, session, refresh, isDemo, demoUsers, resetDemo, login, logout, changePassword, TEST_LOGINS } from './store.js';
 import { esc } from './logic.js';
 import { $, toast, modal, closeModal } from './ui.js';
 import * as home from './views/home.js';
@@ -92,6 +92,10 @@ async function loginView() {
     </form>
     ${isDemo() ? `<p class="muted">Demo mode — or try it straight away as:</p>
       <div class="login-cards">${demoPick.map(u => `<button class="card login-card" data-email="${esc(u.email)}"><strong>${esc(u.name)}</strong><span class="muted">${esc({ teacher: 'Teacher', technician: 'Lab technician', admin: 'Head of department (admin)' }[u.role])}</span></button>`).join('')}</div>
+      <section class="card stack" style="width:min(640px,100%);text-align:left;gap:8px"><h2 class="h3" style="margin:0">Test sign-ins</h2>
+        <table class="tbl"><thead><tr><th>Role</th><th>Username</th><th>Password</th><th></th></tr></thead><tbody>
+        ${TEST_LOGINS.map(t => `<tr><td>${esc({ teacher: 'Teacher', technician: 'Lab technician', admin: 'Head of department' }[t.role])}</td><td><code>${esc(t.email)}</code></td><td><code>${esc(t.password)}</code></td><td class="right"><button type="button" class="btn small" data-fill="${esc(t.email)}">Use</button></td></tr>`).join('')}</tbody></table>
+        <p class="muted xs">Demo mode only. The test teacher is “Teacher C” on the timetable, so they see real lessons and requests.</p></section>
       <p class="muted small">To use your school’s real data, set up the Google Sheet and switch config.js to live mode (see README).</p>` : ''}
   </main>`;
   $('#lf').onsubmit = async e => {
@@ -99,6 +103,8 @@ async function loginView() {
     try { await login(f.get('username'), f.get('password')); saveSession(); await afterSignIn(); }
     catch (err) { $('#lerr').textContent = authMsg(err); btn.disabled = false; }
   };
+  document.querySelectorAll('[data-fill]').forEach(b => b.onclick = () => { const t = TEST_LOGINS.find(x => x.email === b.dataset.fill);
+    $('#lf [name=username]').value = t.email; $('#lf [name=password]').value = t.password; $('#lf [name=password]').focus(); });
   document.querySelectorAll('[data-email]').forEach(b => b.onclick = async () => {
     const u = demoPick.find(x => x.email === b.dataset.email); session.me = { email: u.email, name: u.name, role: u.role, hasPassword: !!u.hasPassword };
     saveSession(); await boot();

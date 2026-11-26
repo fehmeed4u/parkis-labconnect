@@ -30,6 +30,16 @@ The demo data is anonymised (Teacher A–L). Your real timetable, inventory, sta
 
 You can now sign in as the demo teacher, technician or HOD. **Reset demo data** in the yellow bar starts again.
 
+**Test sign-ins (demo mode).** These work with the username and password form, so you can try the real sign-in flow:
+
+| Role | Username | Password |
+|---|---|---|
+| Teacher (“Teacher C” on the timetable) | `test.teacher` | `Teacher-Test-2026` |
+| Lab technician | `test.labtech` | `LabTech-Test-2026` |
+| Head of department | `test.hod` | `Hod-Test-2026` |
+
+They exist only in demo mode, in your own browser. For the live site, see *Test accounts* in 2.6.
+
 ## 2. Connect it to Google (live mode)
 
 You need a school Google account that can create Sheets and Apps Script projects. Steps 2.1 to 2.4 are done once, by the HOD.
@@ -109,6 +119,7 @@ Then open **People & roles** and click **+ Add person** for each member of staff
 - Untick **Can sign in** to lock someone out without deleting their history.
 - Passwords are stored only as salted hashes in the Users tab (`passwordHash`, `salt`) — nobody, including the HOD, can read them. Importing or exporting the Users table never includes or overwrites passwords.
 - Five wrong passwords in a row lock that username for 10 minutes. A sign-in lasts 12 hours (or until the browser tab is closed).
+- **Test accounts:** in Apps Script run **`makeTestAccounts`**. The execution log lists `test.teacher`, `test.labtech` and `test.hod` with a random password each (no change needed at first sign-in), so you can try every role. Set the script property `TEST_TEACHER_NAME` to a teacher’s name from the timetable first if you want the test teacher to see that teacher’s lessons. Run **`removeTestAccounts`** when you are done. (The live passwords are random on purpose — fixed ones would be public in this repository.)
 - If you also set up Google sign-in, use the person’s school email as their username and they can use either way to sign in.
 
 **Hazcards.** CLEAPSS hazcards are copyright CLEAPSS and for members only, so they are not in this repository. To make them pop up:

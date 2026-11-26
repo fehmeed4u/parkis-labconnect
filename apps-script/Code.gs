@@ -185,6 +185,30 @@ function removeUser_(id, me) {
 }
 
 /**
+ * Run from the editor to make three test sign-ins: test.teacher, test.labtech and test.hod.
+ * Each gets a new random password (written to the execution log) that does not need changing,
+ * so you can sign in as each role to try things out. Running it again gives new passwords.
+ * The test teacher uses the TEST_TEACHER_NAME script property (a name from the timetable) so they
+ * see real lessons; otherwise the first teacher on the timetable. Run removeTestAccounts() when done.
+ */
+function makeTestAccounts() {
+  var tt = read_('Timetable'); var teacher = PropertiesService.getScriptProperties().getProperty('TEST_TEACHER_NAME') || (tt[0] && tt[0].teacher) || 'Test Teacher';
+  var lines = [];
+  [['test.teacher', teacher, 'teacher'], ['test.labtech', 'Test Lab Technician', 'technician'], ['test.hod', 'Test Head of Department', 'admin']].forEach(function (a) {
+    var u = findUser_(a[0]) || { email: a[0] };
+    u.name = a[1]; u.role = a[2]; u.active = true;
+    var pw = tempPassword_() + '-' + tempPassword_().slice(0, 4); setPassword_(u, pw, false);
+    writeRow_('Users', 'email', u); endSessions_(a[0]);
+    lines.push(a[2] + ':  username ' + a[0] + '   password ' + pw);
+  });
+  Logger.log('Test sign-ins (delete with removeTestAccounts when you are done):\n' + lines.join('\n'));
+}
+function removeTestAccounts() {
+  ['test.teacher', 'test.labtech', 'test.hod'].forEach(function (id) { remove_('Users', id, { role: 'admin' }); endSessions_(id); });
+  Logger.log('Test accounts removed.');
+}
+
+/**
  * Run from the editor to get the first HOD in without Google sign-in. Creates (or resets) the user named in the
  * ADMIN_USERNAME script property (default "hod") as an admin and writes a temporary password to the execution log.
  */

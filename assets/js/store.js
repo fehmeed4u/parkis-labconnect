@@ -22,13 +22,24 @@ async function live(action, data) {
 /* ---------------- demo (localStorage) ---------------- */
 let demo = null;
 function saveDemo() { try { localStorage.setItem(KEY, JSON.stringify(demo)); } catch (e) {} }
+/** Test sign-ins for the demo (passwords are public — demo mode only; data never leaves the browser). */
+export const TEST_LOGINS = [
+  { email: 'test.teacher', password: 'Teacher-Test-2026', name: 'Teacher C', role: 'teacher', salt: 'demo-test.teacher', passwordHash: 'pCiPAfIotU1+tH1c2YKOKCHr8VIv3KbwP+UWvUH2kvI=' },
+  { email: 'test.labtech', password: 'LabTech-Test-2026', name: 'Test Lab Technician', role: 'technician', salt: 'demo-test.labtech', passwordHash: 'aaPjF/4VXQAjRNJQCv7HxrKA/P7Iw5vg41tkpHyiHm0=' },
+  { email: 'test.hod', password: 'Hod-Test-2026', name: 'Test Head of Department', role: 'admin', salt: 'demo-test.hod', passwordHash: 'ac7AHROm08tbqKBmx4EXzNM1G9N/Qiorzgo1Rm1ERRs=' }
+];
+function ensureTestUsers() {
+  let added = false;
+  TEST_LOGINS.forEach(({ password, ...u }) => { if (!demo.users.some(x => String(x.email).toLowerCase() === u.email)) { demo.users.push({ ...u, active: true, mustChange: false }); added = true; } });
+  if (added) saveDemo();
+}
 async function loadDemo() {
-  try { const s = localStorage.getItem(KEY); if (s) { demo = JSON.parse(s); return; } } catch (e) {}
+  try { const s = localStorage.getItem(KEY); if (s) { demo = JSON.parse(s); ensureTestUsers(); return; } } catch (e) {}
   const names = ['settings', 'users', 'labs', 'timetable', 'inventory', 'hazcards', 'library'];
   const parts = await Promise.all(names.map(n => fetch(`data/demo/${n}.json`).then(r => r.json())));
   demo = Object.fromEntries(names.map((n, i) => [n, parts[i]]));
   demo.requests = sampleRequests(demo); demo.log = [];
-  saveDemo();
+  saveDemo(); ensureTestUsers();
 }
 export function resetDemo() { try { localStorage.removeItem(KEY); } catch (e) {} location.reload(); }
 
