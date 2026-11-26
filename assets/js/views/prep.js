@@ -1,5 +1,5 @@
 import { db, session, call } from '../store.js';
-import { esc, nice, niceLong, hazcardsFor, roomName, clashes, gradeOf, prepOf } from '../logic.js';
+import { esc, nice, niceLong, hazcardsFor, roomName, clashes, unavailable, gradeOf, prepOf } from '../logic.js';
 import { hazcardModal, toast, promptBox, statusChip, iconImg } from '../ui.js';
 import { reload } from '../app.js';
 
@@ -32,6 +32,8 @@ export function sheet(r) {
     </div>
     ${r.status === 'submitted' && r.late ? `<div class="note bad"><strong>Late request.</strong> Sent ${esc(new Date(r.createdAt || r.updatedAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}${r.offer ? ' · you offered: ' + esc(r.offer) : ''}. <button class="linkbtn danger" data-act="offer">Offer another day / time</button></div>` : ''}
     ${hz.length ? `<div class="chips"><span class="kicker danger" style="margin-right:4px">Hazcards</span>${hz.map(h => `<button class="chip hz" data-hz="${esc(h.code)}">${esc(h.code)}${h.title ? ' · ' + esc(h.title) : ''}</button>`).join('')}</div>` : ''}
+    ${(un => un.length ? `<div class="short"><span><strong>Not in our inventory:</strong> ${un.map(u => `${esc(u.name)} × ${esc(u.qty)}${u.reason === 'none in stock' ? ' (none in stock)' : ''}`).join(', ')}. The teacher sent it anyway — order, borrow or suggest a swap.</span>
+      ${isStaff ? `<button class="btn small no-print" data-act="query" data-q="${esc(`We don't have ${un.map(u => u.name).join(', ')}. Could you use something else, or should we try to order it in time?`)}">Ask the teacher</button>` : ''}</div>` : '')(unavailable(db, r))}
     ${cl.map(c => `<div class="short"><span><strong>Short ${Math.max(1, c.need + c.used - c.have)} × ${esc(c.item.name)}.</strong> ${c.have} in stock, ${c.used} booked at the same time${c.others.length ? ' (' + c.others.map(o => esc(o.r.teacher + ' · ' + o.r.room)).join(', ') + ')' : ''}.</span>
       ${isStaff ? `<button class="btn small no-print" data-act="query" data-q="${esc(`Only ${Math.max(0, c.have - c.used)} × ${c.item.name} free at that time. Run fewer groups, or move the lesson?`)}">Ask the teacher</button>` : ''}</div>`).join('')}
     ${r.query ? `<div class="note query"><strong>You asked the teacher:</strong> ${esc(r.query)}</div>` : ''}

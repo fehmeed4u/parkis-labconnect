@@ -1,5 +1,5 @@
 import { db, session } from '../store.js';
-import { esc, nice, iso, addDays, roomName, gradeOf, clashes, totalStock, prepOf, stageOf, STAGES } from '../logic.js';
+import { esc, nice, iso, addDays, roomName, gradeOf, clashes, unavailable, totalStock, prepOf, stageOf, STAGES } from '../logic.js';
 import { statusChip } from '../ui.js';
 import { go } from '../app.js';
 import { sheet, wireSheet } from './prep.js';
@@ -29,8 +29,8 @@ export async function render(el, [selId]) {
   list.slice(0, st.limit).forEach(r => { const l = label(r.date); let g = groups.find(x => x.label === l); if (!g) groups.push(g = { label: l, items: [] }); g.items.push(r); });
 
   const chip = r => r.query ? '<span class="pill st-queried">Queried</span>' : r.status === 'submitted' ? (r.late ? '<span class="pill urgent">Urgent</span>' : '<span class="pill new">New</span>') : statusChip(r.status);
-  const flag = r => { const c = clashes(db, r)[0];
-    return c ? `Short ${Math.max(1, c.need + c.used - c.have)} × ${c.item.name}` : r.reply ? 'Teacher replied' : r.late && r.status === 'submitted' ? 'Late · sent ' + new Date(r.createdAt || r.updatedAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : r.hodApproved ? 'HOD approved' : ''; };
+  const flag = r => { const c = clashes(db, r)[0]; const un = unavailable(db, r);
+    return un.length ? `${un.length} item${un.length > 1 ? 's' : ''} we don’t have` : c ? `Short ${Math.max(1, c.need + c.used - c.have)} × ${c.item.name}` : r.reply ? 'Teacher replied' : r.late && r.status === 'submitted' ? 'Late · sent ' + new Date(r.createdAt || r.updatedAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : r.hodApproved ? 'HOD approved' : ''; };
   const newN = db.requests.filter(r => r.status === 'submitted').length;
   const low = db.inventory.filter(i => Number(i.min) > 0 && totalStock(i) < Number(i.min)).length;
   const todayMin = db.requests.filter(r => r.date === today && ['accepted', 'in_progress', 'submitted'].includes(r.status))

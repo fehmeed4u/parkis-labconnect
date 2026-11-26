@@ -1,5 +1,5 @@
 import { db, session, call } from '../store.js';
-import { esc, nice, niceLong, deadline, isLate, isLabRoom, labStatus, clashes, hazcardsFor, roomName, totalStock, iso, addDays, monday, min, fmtMin, dayCode, isSchoolDay, parse, DAYS, gradeOf } from '../logic.js';
+import { esc, nice, niceLong, deadline, isLate, isLabRoom, labStatus, clashes, unavailable, hazcardsFor, roomName, totalStock, iso, addDays, monday, min, fmtMin, dayCode, isSchoolDay, parse, DAYS, gradeOf } from '../logic.js';
 import { $, modal, closeModal, toast, hazcardModal, statusChip } from '../ui.js';
 import { go, reload } from '../app.js';
 import * as aiImport from './aiimport.js';
@@ -222,7 +222,8 @@ function form(el, q, editing, teacher, lesson) {
 
         <section class="card stack">
           <div class="row between wrap"><h2 class="h2">Practical and equipment</h2>${!editing ? `<a class="small" href="#/library?${new URLSearchParams({ order: orderLink(q, { mode: null, practical: null }).slice(1), grade: S.grade || gradeOf(S.class) || '' })}">Pick from the library instead</a>` : ''}</div>
-          ${S.fromAI ? `<div class="note ok">Planned with AI. Check the quantities and the notes (method, safety, disposal) before you send it — it’s your request.${S.kit.some(k => !k.itemId) ? ' Items marked “Not in our inventory” will need to be sourced by the technicians.' : ''}</div>` : ''}
+          ${S.fromAI ? `<div class="note ok">Planned with AI. Check the quantities and the notes (method, safety, disposal) before you send it — it’s your request.</div>` : ''}
+          ${unavailable(db, S).length ? `<div class="note warn"><strong>We don’t have ${unavailable(db, S).length === 1 ? 'this' : 'these'}:</strong> ${unavailable(db, S).map(u => esc(u.name)).join(', ')}. You can still send the request — the technicians will try to order or borrow ${unavailable(db, S).length === 1 ? 'it' : 'them'}, or suggest a swap. Leave enough time.</div>` : ''}
           ${fromLib ? `<div class="note ok">From the library: <strong>${esc(fromLib.title)}</strong>. The kit and sets are from last time — change anything you need.</div>` : ''}
           <div class="grid2"><label class="fld">Practical<select id="practical"><option value="">— New practical (type the name below) —</option>${lib.map(p => `<option value="${esc(p.id)}"${p.id === S.practicalId ? ' selected' : ''}>${esc(p.title)} · G${esc(p.grade)} ${esc(p.subject)}</option>`).join('')}</select></label>
           <label class="fld">Number of sets<input id="sets" type="number" min="1" max="40" value="${esc(S.sets)}"></label></div>
@@ -245,6 +246,7 @@ function form(el, q, editing, teacher, lesson) {
           <li class="ok-t">✓ Matches your timetable</li>
           ${inClassroom && S.room === S.timetabledRoom ? '<li class="warn-t">! Lesson is in a classroom — pick a lab</li>' : `<li class="ok-t">✓ ${inClassroom ? 'Moved to a lab' : 'Lesson is in a lab'} (${esc(roomName(db, S.room))})</li>`}
           ${clash.length ? `<li class="bad-t">! ${clash.length} equipment clash${clash.length > 1 ? 'es' : ''}</li>` : S.kit.length ? '<li class="ok-t">✓ Equipment free</li>' : '<li class="warn-t">! Add the equipment</li>'}
+          ${unavailable(db, S).length ? `<li class="warn-t">! ${unavailable(db, S).length} item${unavailable(db, S).length > 1 ? 's' : ''} we don’t have — technicians will source</li>` : ''}
           ${hz.length ? `<li class="warn-t">! ${hz.length} hazcard${hz.length > 1 ? 's' : ''} to read</li>` : ''}
           ${S.title ? '' : '<li class="warn-t">! Name the practical</li>'}
         </ul></section>
@@ -265,8 +267,14 @@ function form(el, q, editing, teacher, lesson) {
   $('#sets').onchange = () => later(rerender);
   el.querySelectorAll('[data-pg]').forEach(inp => inp.onchange = () => { S.kit[Number(inp.dataset.pg)].perGroup = Number(inp.value) || 0; later(() => { rerender(); checkClash(); }); });
   el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { S.kit.splice(Number(b.dataset.rm), 1); rerender(); });
-  const add = () => { const v = $('#addItem').value; const m = v.match(/\[([^\]]+)\]$/); const it = m && db.inventory.find(i => i.id === m[1]);
-    if (!it) { toast('Pick an item from the list', 'bad'); return; }
+  const add = () => { const v = $('#addItem').value.trim(); const m = v.match(/\[([^\]]+)\]$/); const it = m && db.inventory.find(i => i.id === m[1]);
+    if (!v) return;
+    if (!it) { // something we don't have: the teacher can still ask for it
+      modal(`<h2 class="h2">“${esc(v)}” isn’t in our inventory</h2><p>Pick it from the list if we have it under another name. Otherwise you can still ask for it — the technicians will try to order or borrow it, or suggest a swap.</p>
+        <div class="row end gap wrap"><button class="btn" data-close>Search again</button><button class="btn pri" id="addMissing">Ask for it anyway</button></div>`);
+      $('#addMissing').onclick = () => { closeModal(); sync(); S.kit.push({ itemId: '', name: v + ' — not in our inventory', perGroup: 1, qty: S.sets }); form(el, q, editing, teacher, lesson); };
+      return;
+    }
     sync(); S.kit.push({ itemId: it.id, name: it.name + (it.size ? ' ' + it.size : ''), perGroup: 1, qty: S.sets }); form(el, q, editing, teacher, lesson); checkClash(it.id); };
   $('#addBtn').onclick = add; $('#addItem').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
   $('#draft').onclick = () => save('draft');

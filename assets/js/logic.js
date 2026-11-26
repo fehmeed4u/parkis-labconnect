@@ -72,6 +72,13 @@ export function clashes(db, req) {
   return out;
 }
 
+/** Items on a request that we can't supply at all: not in the inventory, or none in stock. (Not enough of = clashes().) */
+export function unavailable(db, req) {
+  return (req.kit || []).map(k => ({ k, item: k.itemId ? db.inventory.find(i => i.id === k.itemId) : null }))
+    .filter(x => !x.item || totalStock(x.item) <= 0)
+    .map(x => ({ name: String(x.k.name || '').replace(/ — not in our inventory$/, ''), qty: x.k.qty, reason: x.item ? 'none in stock' : 'not in our inventory' }));
+}
+
 export function hazcardsFor(db, kit) {
   const codes = new Set();
   (kit || []).forEach(k => { const it = db.inventory.find(i => i.id === k.itemId); (it?.hazcards || []).forEach(c => codes.add(c)); });

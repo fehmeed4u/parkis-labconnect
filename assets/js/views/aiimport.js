@@ -163,7 +163,7 @@ export function render(el, opts) {
     if (!st.text.trim()) return;
     try { st.parsed = parseAnswer(st.text); } catch (e) { st.err = e.message; return; }
     if (st.parsed.sets) st.sets = st.parsed.sets;
-    st.rows = st.parsed.items.map(ai => { const r = { ai, keep: false }; const c = candidates(r); r.item = c[0]?.item || null; return r; });
+    st.rows = st.parsed.items.map(ai => { const r = { ai, keep: true }; const c = candidates(r); r.item = c[0]?.item || null; return r; });
     assess(st.rows, st.sets);
   };
 
@@ -199,6 +199,7 @@ export function render(el, opts) {
         ${missing.length || short.length ? `<div class="note ${missing.length ? 'bad' : 'warn'}"><strong>Please rethink before sending.</strong>
           ${missing.length ? ` We don’t have: ${missing.map(r => esc(label(r.ai))).join(', ')}.` : ''}${short.length ? ` Not enough: ${short.map(r => `${esc(r.ai.name)} (need ${r.need}, have ${totalStock(r.item)})`).join(', ')}.` : ''}
           Can you do it without them, share between groups, or swap for something we have? Pick a different item in the list below, or ask the AI to redo it with only our kit.
+          <strong>Or send it anyway</strong> — the technicians will see what’s missing and can order it, borrow it or suggest a swap.
           <div class="row gap wrap" style="margin-top:10px"><button type="button" class="btn small pri" id="copyRethink">Copy “rethink” prompt for the AI</button><span class="small">Then paste its new answer in box 2.</span></div></div>`
           : rows.length ? '<div class="note ok">We have everything this practical needs. The technicians still check what’s free at your lesson time.</div>' : '<div class="note warn">The answer lists no equipment or chemicals.</div>'}
         <div class="scroll"><table class="tbl"><thead><tr><th>From the AI</th><th>Our item</th><th>Needed</th><th>We have</th><th>Status</th></tr></thead><tbody>
@@ -208,14 +209,15 @@ export function render(el, opts) {
           <td style="min-width:240px"><input list="aiInv" data-match="${i}" value="${r.item ? esc(r.item.name + (r.item.size ? ' · ' + r.item.size : '') + ' [' + r.item.id + ']') : ''}" placeholder="Not in our inventory — type to search" aria-label="Our item for ${esc(r.ai.name)}"></td>
           <td class="strong">${r.ai.kind === 'chemical' ? esc(r.ai.amount || '—') : r.need}</td>
           <td>${r.item ? `${totalStock(r.item)}${r.item.list === 'Chemicals' ? ' bottle' + (totalStock(r.item) === 1 ? '' : 's') : ''}<div class="muted xs">${Object.keys(r.item.rooms).filter(k => Number(r.item.rooms[k]) > 0).slice(0, 2).map(k => esc(roomName(db, k))).join(', ')}</div>` : '—'}</td>
-          <td>${r.status === 'ok' ? '<span class="pill ok">✓ We have it</span>' : r.status === 'short' ? '<span class="pill warn">⚠ Not enough</span>' : `<span class="pill urgent">✕ Missing</span><label class="check xs" style="margin-top:6px"><input type="checkbox" data-keep="${i}" ${r.keep ? 'checked' : ''}> Still need it</label>`}</td></tr>`).join('')}
+          <td>${r.status === 'ok' ? '<span class="pill ok">✓ We have it</span>' : r.status === 'short' ? '<span class="pill warn">⚠ Not enough</span>' : `<span class="pill urgent">✕ Missing</span><label class="check xs" style="margin-top:6px"><input type="checkbox" data-keep="${i}" ${r.keep ? 'checked' : ''}> Send it anyway</label>`}</td></tr>`).join('')}
         </tbody></table>${invList}</div>
         ${p.method.length || p.safety.length || p.disposal ? `<details><summary class="strong" style="cursor:pointer">Method, safety and disposal from the AI (goes into the notes for the technicians)</summary>
           ${p.method.length ? `<h3 class="h3" style="margin-top:12px">Method</h3><ol class="rules">${p.method.map(m => `<li>${esc(m)}</li>`).join('')}</ol>` : ''}
           ${p.safety.length ? `<h3 class="h3" style="margin-top:12px">Safety</h3><ul class="rules">${p.safety.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
           ${p.disposal ? `<h3 class="h3" style="margin-top:12px">Disposal</h3><p class="small">${esc(p.disposal)}</p>` : ''}</details>` : ''}
         <div class="row between wrap" style="border-top:1px solid var(--line);padding-top:16px">
-          <span class="muted small">${missing.filter(r => !r.keep).length ? `${missing.filter(r => !r.keep).length} missing item${missing.filter(r => !r.keep).length > 1 ? 's' : ''} will be left out. ` : ''}You can still change everything on the next page.</span>
+          <span class="muted small">${[missing.filter(r => r.keep).length && `${missing.filter(r => r.keep).length} missing item${missing.filter(r => r.keep).length > 1 ? 's' : ''} will go to the technicians to source.`,
+            missing.filter(r => !r.keep).length && `${missing.filter(r => !r.keep).length} left out.`].filter(Boolean).join(' ')} You can still change everything on the next page.</span>
           <button type="button" class="btn pri big" id="useIt" ${rows.length || p.title ? '' : 'disabled'}>Use this practical ›</button></div>
       </section>` : ''}
     </div>`;
@@ -238,14 +240,14 @@ export function render(el, opts) {
     el.querySelectorAll('[data-keep]').forEach(c => c.onchange = () => { st.rows[Number(c.dataset.keep)].keep = c.checked; draw(); });
     const use = el.querySelector('#useIt'); if (use) use.onclick = () => {
       const p = st.parsed;
-      const kit = st.rows.filter(r => r.item || r.keep).map(r => {
+      const kit = st.rows.filter(r => r.status !== 'missing' || r.keep).map(r => {
         const name = r.item ? r.item.name + (r.item.size ? ' ' + r.item.size : '') + (r.ai.kind === 'chemical' ? [r.ai.concentration && ' · ' + r.ai.concentration, r.ai.amount && ` (${r.ai.amount} per group)`].filter(Boolean).join('') : '')
           : label(r.ai) + ' — not in our inventory';
         return r.ai.kind === 'teacher' ? { itemId: r.item?.id || '', name: name + ' (teacher)', perGroup: r.ai.qty, qty: r.ai.qty, fixed: true }
           : { itemId: r.item?.id || '', name, perGroup: r.ai.perGroup, qty: r.ai.perGroup * st.sets };
       });
       const notes = [p.aim && 'Aim: ' + p.aim, p.method.length && 'Method:\n' + p.method.map((m, i) => `${i + 1}. ${m}`).join('\n'), p.safety.length && 'Safety: ' + p.safety.join(' '), p.disposal && 'Disposal: ' + p.disposal,
-        st.rows.some(r => !r.item && r.keep) && 'Not in our inventory (please source): ' + st.rows.filter(r => !r.item && r.keep).map(r => label(r.ai)).join(', '), '(Planned with AI from a teacher’s source.)'].filter(Boolean).join('\n\n');
+        st.rows.some(r => r.status === 'missing' && r.keep) && 'We don’t have (please order, borrow or suggest a swap): ' + st.rows.filter(r => r.status === 'missing' && r.keep).map(r => label(r.ai)).join(', '), '(Planned with AI from a teacher’s source.)'].filter(Boolean).join('\n\n');
       opts.onUse({ title: p.title || 'Untitled practical', topic: p.topic, sets: st.sets, kit, notes });
     };
   };
