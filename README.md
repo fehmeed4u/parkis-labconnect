@@ -8,7 +8,7 @@ A small website for a science department:
 - **Everyone** can see the inventory: room by room, with the cabinet position and a picture. Technicians and the HOD can change it; teachers can only view it.
 - **Booking rule:** requests are due a set number of working days ahead (default 3). On-time requests are booked automatically; late requests wait (blue) for a technician to approve, change the day or time, or reject them. The teacher chooses to talk to the technicians first or to send it anyway.
 - **Changes the technicians must see:** when a teacher changes, postpones or cancels a request, it is flagged on the week board, the queue and the prep sheet until a technician clicks *Seen*. A cancelled practical stays on the board, struck through, until then — with a warning if another teacher has the same practical that day and may be sharing the trolley.
-- **Hazcards:** the CLEAPSS hazcards for every chemical in an order pop up for the teacher when ordering and for the technician when preparing.
+- **Hazcards and safety data sheets:** the CLEAPSS hazcards for every chemical in an order pop up for the teacher when ordering and for the technician when preparing. Each chemical in the inventory, the order form and the prep sheet links to its safety data sheet (SDS). A **Safety report** lists every chemical that still has no hazcard or SDS.
 - **Records:** every request is kept with its date and time, so the practical library grows by itself. Every table can be exported and imported as JSON or CSV (CSV opens in Excel).
 
 It is a plain static site (HTML, CSS, JavaScript; no build step). The landing page is the sign-in page. Where the data lives depends on `assets/js/config.js`:
@@ -70,6 +70,7 @@ In Apps Script, **Project Settings → Script properties → Add**:
 | `ADMIN_EMAILS` | the HOD’s email or username; separate several with commas. These people are always admins. |
 | `ADMIN_USERNAME` | (optional) the HOD’s username for the first sign-in, default `hod` |
 | `HAZCARD_FOLDER_ID` | (optional, see 2.6) the Drive folder ID of your hazcard PDFs |
+| `SDS_FOLDER_ID` | (optional, see 2.6) the Drive folder ID of your safety data sheet (SDS) PDFs |
 
 ### 2.4 Deploy the web app
 
@@ -79,7 +80,7 @@ In Apps Script, **Project Settings → Script properties → Add**:
 
 When you change `Code.gs` later, use **Deploy → Manage deployments → edit (pencil) → Version: New version** so the URL stays the same.
 
-> **Updating from an earlier version:** recent updates added columns (`passwordHash`, `salt`, `mustChange` on Users; `query`, `reply`, `hodApproved`, `flag`, `postponedFrom` on Requests; `orderApproved` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
+> **Updating from an earlier version:** recent updates added columns (`passwordHash`, `salt`, `mustChange` on Users; `query`, `reply`, `hodApproved`, `flag`, `postponedFrom` on Requests; `orderApproved`, `sds`, `sdsNote`, `altNames` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
 
 ### 2.5 Connect the site to the Google Sheet
 
@@ -125,6 +126,15 @@ Then open **People & roles** and click **+ Add person** for each member of staff
 1. Upload the hazcard PDFs to one folder in the school Google Drive. Leave it shared with the school only, not public. File names must start with the card number, e.g. `91A - Sodium Hydroxide.pdf`, as they do already.
 2. Copy the folder ID (the part of the folder’s URL after `/folders/`) into the `HAZCARD_FOLDER_ID` script property.
 3. In Apps Script run **`linkHazcards`**. The Hazcards tab now holds a preview link for each card. Staff signed in to the school Google account see the card itself in the pop-up.
+
+**Safety data sheets (SDS).** Every chemical should have its hazcard, its SDS, or both. To link the SDS files:
+
+1. Put the SDS PDFs in one folder in the **school** Google Drive (the account that owns the Apps Script must be able to open it), shared with the school only. Name each file after the chemical, e.g. `Sodium hydroxide.pdf`. A file that covers two names can list both, separated by a comma: `methanoic acid, formic acid.pdf`.
+2. Copy the folder ID into the `SDS_FOLDER_ID` script property.
+3. In Apps Script run **`linkSds`**. It matches each chemical by name, by its *Other names* (`altNames`, separated by `;`) and by common old/IUPAC pairs (ethanoic acid = acetic acid, propanone = acetone, potassium manganate(VII) = potassium permanganate …). It ignores hydrates, grades and concentrations only as a last resort, and marks those links *“Close match — check it is the right one”*. Technicians see that note on the item and click **It’s right** once they have checked it.
+4. Open the new **SDS report** tab in the Sheet: every chemical with its file and match, the files nothing matched, and files that look like the same chemical (keep one).
+
+Links typed in by hand (**Inventory → item → More details → Safety data sheet link**) are kept when you run `linkSds` again; `linkSds(null, true)` redoes them all. In the app, **Inventory → Chemicals missing safety info** lists every chemical without a hazcard or SDS (and the SDS still to check), and **Safety report** downloads the whole list for a health and safety check.
 
 ### 2.7 Backups
 

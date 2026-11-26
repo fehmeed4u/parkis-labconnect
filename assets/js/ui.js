@@ -60,6 +60,15 @@ export function hazcardModal(cards, headline, doneLabel = 'I’ve read these', u
 }
 const shortTitle = t => String(t).split(/ and | & |, /)[0];
 
+/** Hazcard chips (click to read) and the SDS link for one inventory item. `staff` also shows "check this SDS" notes. */
+export function safetyLinks(i, staff = false) {
+  const hz = (i.hazcards || []).map(c => `<button type="button" class="chip hz" data-hz="${esc(c)}">Hazcard ${esc(c)}</button>`).join('');
+  const sds = i.sds ? `<a class="chip sds" href="${esc(i.sds)}" target="_blank" rel="noopener">Safety data sheet ↗</a>` : '';
+  const missing = !hz && !sds ? '<span class="pill st-rejected">No hazcard or SDS yet</span>' : !sds && i.list === 'Chemicals' ? '<span class="muted small">No SDS yet</span>' : '';
+  const check = staff && /^Close match/.test(i.sdsNote || '') ? `<div class="note warn small">${esc(i.sdsNote)}. <button type="button" class="linkbtn" data-sds-ok="${esc(i.id)}">It’s right</button></div>` : '';
+  return `<div class="chips safety">${hz}${sds}${missing}</div>${check}`;
+}
+
 export const statusLabel = { draft: 'Draft', submitted: 'Waiting for approval', accepted: 'Not started', in_progress: 'In prep', ready: 'Ready', done: 'Closed', rejected: 'Rejected', cancelled: 'Cancelled', queried: 'Queried' };
 /** Status chip. Pass a request to show “Queried” when the technicians asked something. */
 export const statusChip = (s, r) => { if (r && r.query && !['done', 'rejected', 'cancelled'].includes(s)) s = 'queried';

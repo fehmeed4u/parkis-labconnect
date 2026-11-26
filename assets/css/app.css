@@ -170,6 +170,9 @@ span.chip { cursor: default; }
 .chip.danger { color: var(--red-ink); border-color: var(--line-2); background: var(--surface); }
 .chip.hz { font-size: 12px; padding: 5px 11px; }
 .chip.danger.on, .chip.hz { border-color: var(--red); background: var(--red-soft); color: var(--red-ink); }
+a.chip { text-decoration: none; display: inline-flex; align-items: center; }
+.chip.sds { font-size: 12px; padding: 5px 11px; border-color: var(--blue-ink); background: var(--blue-soft); color: var(--blue-ink); }
+.safety-block { display: flex; flex-direction: column; gap: 6px; } .safety-block .kicker { margin: 4px 0 0; }
 .pill { display: inline-block; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
 .pill.danger, .pill.urgent { background: var(--red-bg); color: var(--red-ink); }
 .pill.new, .st-submitted { background: var(--blue-soft); color: var(--blue-ink); }
@@ -472,3 +475,4 @@ a.opt:hover { border-color: var(--pri); box-shadow: 0 0 0 2px var(--pri-soft); c
 .opt.locked .opt-ic { background: var(--violet-soft); color: var(--violet-ink); }
 .opt.mini { min-height: 0; padding: 14px 16px; gap: 4px; }
 .opt.mini strong { font-size: 14px; }
+.pill.sds-pill { background: var(--blue-soft); color: var(--blue-ink); text-decoration: none; }

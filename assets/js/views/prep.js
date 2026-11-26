@@ -51,7 +51,7 @@ export function sheet(r) {
       </tbody></table></div>
     </div>
     ${chems.length ? `<div><h3 class="h3">Chemicals and solutions to make up</h3><div class="solutions">${chems.map(x => `<div class="sol"><b>${esc(x.k.name)}${x.it.size ? ' · ' + esc(x.it.size) : ''} · ${esc(x.k.qty)} for ${esc(r.sets)} groups</b>
-      ${whereOf(x.it) ? 'Stock: ' + whereOf(x.it) + '<br>' : ''}${x.it.hazcards?.length ? 'Hazcard ' + esc(x.it.hazcards.join(', ')) : ''}${x.it.storageGroup ? ' · storage group ' + esc(x.it.storageGroup) : ''}
+      ${whereOf(x.it) ? 'Stock: ' + whereOf(x.it) + '<br>' : ''}${x.it.hazcards?.length ? 'Hazcard ' + esc(x.it.hazcards.join(', ')) : ''}${x.it.sds ? `${x.it.hazcards?.length ? ' · ' : ''}<a href="${esc(x.it.sds)}" target="_blank" rel="noopener">Safety data sheet ↗</a>` : ''}${x.it.storageGroup ? ' · storage group ' + esc(x.it.storageGroup) : ''}
       <label class="check no-print" style="margin-top:8px;font-size:13px"><input type="checkbox" data-pick="${x.i}" ${picked[r.id][x.i] ? 'checked' : ''}> Made up</label></div>`).join('')}</div></div>` : ''}
     ${isStaff ? `<div class="no-print"><label class="fld">Technician notes (breakages, returns)<textarea data-tn rows="2">${esc(r.techNotes || '')}</textarea></label><div style="margin-top:8px"><button class="btn small" data-save-tn>Save notes</button></div></div>
     <div class="sheet-foot no-print">

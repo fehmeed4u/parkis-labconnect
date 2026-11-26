@@ -177,3 +177,14 @@ export function rulePostpone(r, slot, me, now = new Date()) {
   return { date: slot.date, start: slot.start, end: slot.end, room: slot.room, timetabledRoom: slot.timetabledRoom || slot.room,
     postponedFrom: r.postponedFrom || at(r.date, r.start), flag: `Postponed by the ${me.role === 'teacher' ? 'teacher' : 'technicians'} from ${nice(r.date)} ${r.start}` };
 }
+
+/* ---------- safety paperwork for chemicals: CLEAPSS hazcard(s) and the supplier's safety data sheet (SDS) ----------
+   Every chemical should have at least one; ideally both. linkSds in Code.gs fills `sds` from the SDS folder. */
+export const sdsToCheck = i => /^Close match/.test(i.sdsNote || '');
+/** '' = has both · 'no-sds' · 'no-hazcard' · 'none' = neither (not for equipment). */
+export function safetyGap(i) {
+  if (i.list !== 'Chemicals') return '';
+  const hz = (i.hazcards || []).length > 0, sds = !!i.sds;
+  return hz && sds ? '' : hz ? 'no-sds' : sds ? 'no-hazcard' : 'none';
+}
+export const SAFETY_GAP = { none: 'No hazcard and no SDS', 'no-sds': 'Hazcard only — no SDS', 'no-hazcard': 'SDS only — no hazcard' };

@@ -285,7 +285,7 @@ function form(el, q, editing, teacher, lesson) {
           <div class="scroll"><table class="tbl"><thead><tr><th>Item</th><th>Per group</th><th>Needed</th><th>Free at that time</th><th></th></tr></thead><tbody>
           ${S.kit.map((k, i) => { const it = db.inventory.find(x => x.id === k.itemId); const c = clash.find(x => x.item.id === k.itemId);
             const free = !it ? '<span class="bad-t">Not in our inventory</span>' : it.list !== 'Equipment' ? '<span class="muted">—</span>' : c ? `<span class="bad-t">Only ${Math.max(0, c.have - c.used)} of ${c.have} free</span>` : '<span class="ok-t strong">Free</span>';
-            return `<tr><td>${esc(k.name)}${it?.hazcards?.length ? ` <span class="pill danger">Hazcard ${esc(it.hazcards.join(', '))}</span>` : ''}</td>
+            return `<tr><td>${esc(k.name)}${it?.hazcards?.length ? ` <span class="pill danger">Hazcard ${esc(it.hazcards.join(', '))}</span>` : ''}${it?.sds ? ` <a class="pill sds-pill" href="${esc(it.sds)}" target="_blank" rel="noopener">SDS ↗</a>` : ''}</td>
             <td>${k.fixed ? '<span class="muted small">teacher only</span>' : `<input class="num" type="number" min="0" step="any" value="${esc(k.perGroup)}" data-pg="${i}" aria-label="Per group">`}</td><td class="strong">${esc(k.qty)}</td><td>${free}</td>
             <td><button type="button" class="icon-btn" data-rm="${i}" aria-label="Remove ${esc(k.name)}">×</button></td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">No items yet — add the equipment and chemicals you need.</td></tr>'}
           </tbody></table></div>
