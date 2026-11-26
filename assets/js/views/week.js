@@ -1,5 +1,5 @@
 import { db, session, call } from '../store.js';
-import { esc, iso, addDays, monday, min, fmtMin, nice, DAYS, hazcardsFor, roomName, labRooms, clashes, gradeOf, prepOf } from '../logic.js';
+import { esc, iso, addDays, monday, min, fmtMin, nice, DAYS, hazcardsFor, roomName, labRooms, clashes, gradeOf, prepOf, lightOf, LIGHTS, ACTIVE } from '../logic.js';
 import { $, modal, closeModal, toast, promptBox } from '../ui.js';
 import { go, reload, themePicker, wireThemes, openTab } from '../app.js';
 
@@ -7,19 +7,23 @@ const st = { offset: 0, layout: pref('layout', 'week'), across: pref('across', '
 function pref(k, d) { try { return localStorage.getItem('sp_week_' + k) || d; } catch (e) { return d; } }
 function setPref(k, v) { st[k] = v; try { localStorage.setItem('sp_week_' + k, v); } catch (e) {} }
 const SHOW = ['submitted', 'accepted', 'in_progress', 'ready', 'done'];
-const NAMES = ['not started', 'in progress', 'prepared'];
+const KEYS = ['w', 0, 1, 2]; // blue waiting for approval, red not started, amber in prep, green ready
+const NAMES = { w: 'waiting for approval', 0: 'not started', 1: 'in progress', 2: 'prepared', x: 'cancelled' };
+/** Cancelled requests stay on the board, struck through, until a technician has seen them (so no trolley is left waiting). */
+const shown = r => SHOW.includes(r.status) || (r.status === 'cancelled' && !!r.flag);
 
 export async function render(el) {
   const mon = addDays(monday(new Date()), st.offset * 7);
   const dates = DAYS.map((_, i) => iso(addDays(mon, i)));
-  const jobs = db.requests.filter(r => dates.includes(r.date) && SHOW.includes(r.status)).map(r => ({ ...r, day: dates.indexOf(r.date), p: prepOf(r), warn: r.late || !!r.query || clashes(db, r).length > 0 }));
+  const jobs = db.requests.filter(r => dates.includes(r.date) && shown(r)).map(r => { const p = r.status === 'cancelled' ? 'x' : lightOf(r);
+    return { ...r, day: dates.indexOf(r.date), p, k: p === 'x' ? 0 : p, warn: p !== 'x' && (r.late || !!r.query || !!r.flag || clashes(db, r).length > 0) }; });
   const n = k => jobs.filter(j => j.p === k).length;
   const dayStart = min(db.settings.dayStart || '08:30'), dayEnd = min(db.settings.dayEnd || '16:00');
   const slots = []; for (let t = dayStart; t < dayEnd; t += 30) slots.push(t);
   const slotOf = s => Math.max(0, Math.round((min(s) - dayStart) / 30));
   const span = j => Math.max(1, slotOf(j.end) - slotOf(j.start));
-  const label = j => `${j.title}, G${gradeOf(j.class)} ${j.subject}, ${nice(j.date)} ${j.start}, ${j.room}, ${NAMES[j.p]}${j.status === 'submitted' ? ', new request' : ''}${j.warn ? ', needs attention' : ''}`;
-  const card = (j, pos, cls = 'job') => `<button class="${cls} p${j.p}${j.late ? ' late' : ''}${L === 'sidebar' && st.sel === j.id ? ' sel' : ''}" style="${pos}" data-job="${esc(j.id)}" aria-label="${esc(label(j))}" title="${esc(j.title)}">
+  const label = j => `${j.title}, G${gradeOf(j.class)} ${j.subject}, ${nice(j.date)} ${j.start}, ${j.room}, ${NAMES[j.p]}${j.flag ? ', ' + j.flag : ''}${j.warn ? ', needs attention' : ''}`;
+  const card = (j, pos, cls = 'job') => `<button class="${cls} p${j.p}${j.late && j.p === 'w' ? ' late' : ''}${L === 'sidebar' && st.sel === j.id ? ' sel' : ''}" style="${pos}" data-job="${esc(j.id)}" aria-label="${esc(label(j))}" title="${esc(j.title)}">
       <span class="jt">${esc(j.title)}</span><span class="js">G${esc(gradeOf(j.class))} · ${esc(j.subject)}</span>
       <span class="jr"><span>${esc(j.room)}</span>${j.warn ? '<i aria-hidden="true">!</i>' : ''}</span></button>`;
 
@@ -57,12 +61,12 @@ export async function render(el) {
   if (L === 'today') {
     const td = dates.includes(iso(new Date())) ? iso(new Date()) : dates[0];
     const list = jobs.filter(j => j.date === td).sort((a, b) => min(a.start) - min(b.start));
-    body = `<div class="cols"><aside class="card side-col" style="flex-basis:300px;max-width:340px;gap:8px;padding:16px"><h2 class="h2" style="margin-bottom:6px">${esc(nice(td))}</h2>${list.map(j => `<button class="todayrow p${j.p}${j.late ? ' late' : ''}" data-job="${esc(j.id)}" aria-label="${esc(label(j))}"><b>${esc(j.start)}</b><span><strong>${esc(j.title)}</strong><span class="small">G${esc(gradeOf(j.class))} · ${esc(j.subject)} · ${esc(j.room)}</span></span></button>`).join('') || '<p class="muted">Nothing today.</p>'}</aside>${grid()}</div>`;
+    body = `<div class="cols"><aside class="card side-col" style="flex-basis:300px;max-width:340px;gap:8px;padding:16px"><h2 class="h2" style="margin-bottom:6px">${esc(nice(td))}</h2>${list.map(j => `<button class="todayrow p${j.p}${j.late && j.p === 'w' ? ' late' : ''}" data-job="${esc(j.id)}" aria-label="${esc(label(j))}"><b>${esc(j.start)}</b><span><strong>${esc(j.title)}</strong><span class="small">G${esc(gradeOf(j.class))} · ${esc(j.subject)} · ${esc(j.room)}</span></span></button>`).join('') || '<p class="muted">Nothing today.</p>'}</aside>${grid()}</div>`;
   }
   if (L === 'columns') {
     body = `<div class="chips">${[-1, 0, 1, 2, 3, 4].map(d => `<button class="chip${st.colDay === d ? ' on' : ''}" data-cd="${d}">${d < 0 ? 'All week' : head(d)}</button>`).join('')}</div>
-    <div class="kcols">${[0, 1, 2].map(k => { const l = jobs.filter(j => j.p === k && (st.colDay < 0 || j.day === st.colDay)).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
-      return `<section class="kcol k${k}" aria-label="${NAMES[k]}"><div class="kh"><i class="dot" aria-hidden="true"></i><span>${NAMES[k]}</span><strong>${l.length}</strong></div>${l.map(j => `<button class="kcard${j.late ? ' late' : ''}" data-job="${esc(j.id)}" aria-label="${esc(label(j))}"><strong>${esc(j.title)}</strong><span class="small muted">G${esc(gradeOf(j.class))} · ${esc(j.subject)}</span><span class="row between small"><b>${esc(DAYS[j.day])} ${esc(j.start)}</b><b>${esc(j.room)}</b></span></button>`).join('')}</section>`; }).join('')}</div>`;
+    <div class="kcols">${KEYS.map(k => { const l = jobs.filter(j => j.k === k && (st.colDay < 0 || j.day === st.colDay)).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+      return `<section class="kcol k${k}" aria-label="${NAMES[k]}"><div class="kh"><i class="dot" aria-hidden="true"></i><span>${NAMES[k]}</span><strong>${l.length}</strong></div>${l.map(j => `<button class="kcard${j.late && j.p === 'w' ? ' late' : ''}${j.p === 'x' ? ' x' : ''}" data-job="${esc(j.id)}" aria-label="${esc(label(j))}"><strong>${esc(j.title)}</strong><span class="small muted">G${esc(gradeOf(j.class))} · ${esc(j.subject)}</span><span class="row between small"><b>${esc(DAYS[j.day])} ${esc(j.start)}</b><b>${esc(j.room)}</b></span></button>`).join('')}</section>`; }).join('')}</div>`;
   }
   if (L === 'labs') {
     const rooms = labRooms(db).map(l => l.room); const extra = [...new Set(jobs.filter(j => j.day === st.labDay && !rooms.includes(j.room)).map(j => j.room))]; const all = rooms.concat(extra);
@@ -77,7 +81,7 @@ export async function render(el) {
     <div class="wtool">
       <div class="row gap wrap"><button class="icon-btn b" data-w="-1" aria-label="Previous week">‹</button><h1 class="h1">${esc(mon.getDate() + ' ' + mon.toLocaleDateString('en-GB', { month: 'short' }))}–${esc(addDays(mon, 4).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }))}</h1><button class="icon-btn b" data-w="1" aria-label="Next week">›</button>
         ${st.offset ? '<button class="linkbtn" data-w="0">This week</button>' : ''}
-        <span class="counts"><span aria-label="${n(0)} not started"><i class="dot d0"></i>${n(0)}</span><span aria-label="${n(1)} in progress"><i class="dot d1"></i>${n(1)}</span><span aria-label="${n(2)} prepared"><i class="dot d2"></i>${n(2)}</span></span></div>
+        <span class="counts">${KEYS.map(k => `<span aria-label="${n(k)} ${NAMES[k]}" title="${esc(LIGHTS[k])}"><i class="dot d${k}"></i>${n(k)}</span>`).join('')}${n('x') ? `<span aria-label="${n('x')} cancelled" title="Cancelled — check and dismiss"><i class="dot dx"></i>${n('x')}</span>` : ''}</span></div>
       <div class="row gap wrap"><div class="seg" role="group" aria-label="Layout">${[['week', 'Week'], ['sidebar', 'Sidebar'], ['today', 'Today'], ['columns', 'Columns'], ['labs', 'Labs']].map(([k, l]) => `<button data-layout="${k}" aria-pressed="${L === k}">${l}</button>`).join('')}</div>
         ${['week', 'sidebar', 'today'].includes(L) ? '<button class="icon-btn b" id="flip" aria-label="Swap days and times" title="Swap days and times">⇄</button>' : ''}${themePicker()}</div>
     </div>
@@ -95,21 +99,33 @@ export async function render(el) {
 
 export function overview(id) {
   const r = db.requests.find(x => x.id === id); if (!r) return '';
-  const p = prepOf(r);
-  const hz = hazcardsFor(db, r.kit); const cl = clashes(db, r);
+  const p = r.status === 'cancelled' ? 'x' : lightOf(r);
+  const hz = hazcardsFor(db, r.kit); const cl = r.status === 'cancelled' ? [] : clashes(db, r);
   return `<div class="band d${p}"></div><div class="row between"><h2 class="h2">${esc(r.title)}</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
   <dl class="dl"><dt>When</dt><dd>${esc(nice(r.date))} · ${esc(r.start)}–${esc(r.end)}</dd><dt>Where</dt><dd>${esc(roomName(db, r.room))}${r.room !== r.timetabledRoom && r.timetabledRoom ? ` <span class="muted small">(moved from ${esc(r.timetabledRoom)})</span>` : ''}</dd>
   <dt>Grade</dt><dd>Grade ${esc(gradeOf(r.class))}</dd><dt>Subject</dt><dd>${esc(r.subject)}</dd><dt>Class</dt><dd>${esc(r.class)} · ${esc(r.teacher)}</dd><dt>Sets</dt><dd>${esc(r.sets)}</dd>
   <dt>Kit</dt><dd>${r.kit.length ? `<ul class="kitlist">${r.kit.map(k => `<li>${esc(k.name)}${k.qty ? ` <span class="muted">× ${esc(k.qty)}</span>` : ''}</li>`).join('')}</ul>` : '<span class="muted">Nothing listed</span>'}</dd></dl>
   ${hz.length ? `<div class="chips"><span class="kicker danger">Hazcards</span>${hz.map(h => `<span class="chip hz">${esc(h.code)}</span>`).join('')}</div>` : ''}
   ${cl.length ? `<div class="note bad">${cl.map(c => `${esc(c.item.name)}: ${c.have} in stock, ${c.need} needed${c.used ? ` + ${c.used} booked by others at this time` : ''}`).join('<br>')}</div>` : ''}
-  ${r.status === 'submitted' ? `<div class="note ${r.late ? 'bad' : ''}"><strong>${r.late ? 'Late request' : 'New request'}.</strong> Sent ${esc(new Date(r.createdAt || r.updatedAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}${r.offer ? ` · offered: ${esc(r.offer)}` : ''}
-    <div class="row gap wrap" style="margin-top:8px"><button class="btn small pri" data-act="accept">Accept</button><button class="btn small" data-act="query">Query</button><button class="btn small" data-act="offer">Change day / time</button><button class="btn small danger-outline" data-act="reject">Reject</button></div></div>` : ''}
+  ${flagNote(r)}
+  ${r.status === 'submitted' ? `<div class="note late-w"><strong>Late request — waiting for your approval.</strong> Sent ${esc(new Date(r.createdAt || r.updatedAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}${r.offer ? ` · offered: ${esc(r.offer)}` : ''}
+    <div class="row gap wrap" style="margin-top:8px"><button class="btn small pri" data-act="accept">Approve</button><button class="btn small" data-act="query">Query</button><button class="btn small" data-act="offer">Change day / time</button><button class="btn small danger-outline" data-act="reject">Reject</button></div></div>` : ''}
   ${r.query ? `<div class="note query"><strong>You asked:</strong> ${esc(r.query)}</div>` : ''}
   ${r.reply ? `<div class="note ok"><strong>Teacher replied:</strong> ${esc(r.reply)}</div>` : ''}
   ${r.notes ? `<p class="small"><strong>Teacher’s note:</strong> ${esc(r.notes)}</p>` : ''}
-  <div class="row gap"><button class="swatch d0${p === 0 ? ' on' : ''}" data-prep="0" aria-label="Mark not started" aria-pressed="${p === 0}"></button><button class="swatch d1${p === 1 ? ' on' : ''}" data-prep="1" aria-label="Mark in progress" aria-pressed="${p === 1}"></button><button class="swatch d2${p === 2 ? ' on' : ''}" data-prep="2" aria-label="Mark prepared" aria-pressed="${p === 2}"></button>
-  <a class="btn pri" style="margin-left:auto" href="#/prep/${esc(r.id)}" target="_blank" data-newtab title="Opens in a new tab">Prep sheet ↗</a></div>`;
+  ${r.status === 'cancelled' ? '' : `<div class="row gap"><button class="swatch d0${p === 0 ? ' on' : ''}" data-prep="0" aria-label="Mark not started" aria-pressed="${p === 0}"></button><button class="swatch d1${p === 1 ? ' on' : ''}" data-prep="1" aria-label="Mark in progress" aria-pressed="${p === 1}"></button><button class="swatch d2${p === 2 ? ' on' : ''}" data-prep="2" aria-label="Mark prepared" aria-pressed="${p === 2}"></button>
+  <a class="btn pri" style="margin-left:auto" href="#/prep/${esc(r.id)}" target="_blank" data-newtab title="Opens in a new tab">Prep sheet ↗</a></div>`}`;
+}
+
+/** What changed since the technicians last looked: changed / cancelled / postponed by the teacher. Dismissing it clears the flag. */
+export function flagNote(r) {
+  if (!r.flag) return '';
+  const when = new Date(r.updatedAt || r.createdAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  // the same practical booked by someone else that day may be sharing this one's trolley
+  const shared = r.status === 'cancelled' ? db.requests.filter(o => o.id !== r.id && o.practicalId && o.practicalId === r.practicalId && o.date === r.date && ACTIVE.includes(o.status) && o.status !== 'done') : [];
+  return `<div class="note ${r.status === 'cancelled' ? 'bad' : 'warn'} flag"><strong>${esc(r.flag)}</strong> · ${esc(when)}
+    ${r.status === 'cancelled' ? `<br>${shared.length ? `<strong>Check before you clear the kit:</strong> ${shared.map(o => `${esc(o.teacher)} also has this practical at ${esc(o.start)} (${esc(o.room)})`).join('; ')}.` : 'Put the kit away if it was already set out.'}` : ''}
+    ${session.me.role !== 'teacher' ? `<div style="margin-top:8px"><button class="btn small" data-act="seen">${r.status === 'cancelled' ? 'Seen — remove from the board' : 'Seen'}</button></div>` : ''}</div>`;
 }
 
 export function wire(root, el, id = st.sel) {
@@ -117,10 +133,11 @@ export function wire(root, el, id = st.sel) {
   const done = async (patch, msg) => { try { await call('updateRequest', { id: r.id, patch }); toast(msg); closeModal(); await reload(); } catch (e) { toast(e.message, 'bad'); } };
   root.querySelectorAll('[data-newtab]').forEach(a => a.onclick = e => { e.preventDefault(); openTab(a.getAttribute('href')); });
   root.querySelectorAll('[data-prep]').forEach(b => b.onclick = () => { const k = Number(b.dataset.prep);
-    done({ prep: k, status: k === 2 ? 'ready' : k === 1 ? 'in_progress' : (r.status === 'submitted' ? 'submitted' : 'accepted') }, ['Not started', 'In progress', 'Prepared'][k]); });
+    done({ prep: k, status: k === 2 ? 'ready' : k === 1 ? 'in_progress' : (r.status === 'submitted' ? 'submitted' : 'accepted') }, ['Not started', 'In prep', 'Ready'][k]); });
   root.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
     const a = b.dataset.act;
-    if (a === 'accept') done({ status: 'accepted', late: r.late, offer: '' }, 'Accepted');
+    if (a === 'accept') done({ status: 'accepted', late: r.late, offer: '' }, 'Approved');
+    if (a === 'seen') done({ flag: '' }, r.status === 'cancelled' ? 'Removed from the board' : 'Marked as seen');
     if (a === 'query') { const v = await promptBox('Ask the teacher a question', [{ name: 'query', label: 'e.g. “Only 6 burettes free in Lab 2. Run 6 groups, or move to Lab 3?”', value: r.query || '' }], 'Send query'); if (v && v.query) done({ query: v.query, reply: '' }, 'Query sent'); }
     if (a === 'reject') { const v = await promptBox('Reject this request?', [{ name: 'techNotes', label: 'Reason for the teacher' }], 'Reject'); if (v) done({ status: 'rejected', techNotes: v.techNotes }, 'Rejected'); }
     if (a === 'offer') { const v = await promptBox('Offer another day or time', [{ name: 'offer', label: 'What can you do? e.g. “Thu 26 Nov 14:00 in S4.05”' }], 'Send to teacher'); if (v && v.offer) done({ offer: v.offer }, 'Offer sent'); }

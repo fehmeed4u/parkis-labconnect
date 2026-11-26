@@ -60,9 +60,11 @@ export function hazcardModal(cards, headline, doneLabel = 'I’ve read these', u
 }
 const shortTitle = t => String(t).split(/ and | & |, /)[0];
 
-export const statusLabel = { draft: 'Draft', submitted: 'Submitted', accepted: 'Accepted', in_progress: 'In prep', ready: 'Ready', done: 'Closed', rejected: 'Rejected', cancelled: 'Cancelled', queried: 'Queried' };
+export const statusLabel = { draft: 'Draft', submitted: 'Waiting for approval', accepted: 'Not started', in_progress: 'In prep', ready: 'Ready', done: 'Closed', rejected: 'Rejected', cancelled: 'Cancelled', queried: 'Queried' };
 /** Status chip. Pass a request to show “Queried” when the technicians asked something. */
-export const statusChip = (s, r) => { if (r && r.query && !['done', 'rejected', 'cancelled'].includes(s)) s = 'queried'; return `<span class="pill st-${esc(s)}">${esc(statusLabel[s] || s)}</span>`; };
+export const statusChip = (s, r) => { if (r && r.query && !['done', 'rejected', 'cancelled'].includes(s)) s = 'queried';
+  if (s === 'accepted' && r && Number(r.prep) > 0) s = Number(r.prep) === 2 ? 'ready' : 'in_progress'; // technicians set the colour on the board
+  return `<span class="pill st-${esc(s)}">${esc(statusLabel[s] || s)}</span>`; };
 export const iconImg = (item, size = 40) => item.photo ? `<img src="${esc(item.photo)}" alt="" width="${size}" height="${size}" class="thumb">`
   : item.icon ? `<img src="assets/icons/${esc(item.icon)}.svg" alt="" width="${size}" height="${size}" class="thumb icon">` : `<span class="thumb none" style="width:${size}px;height:${size}px">?</span>`;
 export function download(name, text, type = 'application/json') {

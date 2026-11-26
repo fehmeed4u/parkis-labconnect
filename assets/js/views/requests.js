@@ -1,7 +1,8 @@
 import { db, session } from '../store.js';
-import { esc, nice, iso, addDays, roomName, gradeOf, clashes, unavailable, totalStock, prepOf, stageOf, STAGES } from '../logic.js';
-import { statusChip } from '../ui.js';
-import { go } from '../app.js';
+import { esc, nice, iso, addDays, roomName, gradeOf, clashes, unavailable, totalStock, prepOf, stageOf, STAGES, teacherCanEdit, canPostpone } from '../logic.js';
+import { statusChip, confirmBox, toast } from '../ui.js';
+import { go, reload } from '../app.js';
+import { call } from '../store.js';
 import { sheet, wireSheet } from './prep.js';
 import { mineOf } from './home.js';
 
@@ -13,8 +14,8 @@ export async function render(el, [selId]) {
   if (session.me.role === 'teacher') return mine(el);
   const today = iso(new Date());
   const tabs = {
-    open: ['To do', r => r.date >= today && ['submitted', 'accepted', 'in_progress', 'ready'].includes(r.status)],
-    new: ['New & late', r => r.status === 'submitted'],
+    open: ['To do', r => r.date >= today && (['submitted', 'accepted', 'in_progress', 'ready'].includes(r.status) || (r.status === 'cancelled' && !!r.flag))],
+    new: ['Late — to approve', r => r.status === 'submitted'],
     past: ['Done', r => r.date < today && ['done', 'ready', 'accepted', 'in_progress'].includes(r.status)],
     closed: ['Rejected / cancelled', r => ['rejected', 'cancelled'].includes(r.status)],
     drafts: ['Teachers’ drafts', r => r.status === 'draft']
@@ -33,8 +34,8 @@ export async function render(el, [selId]) {
     : d === today ? 'TODAY · ' + nice(d).toUpperCase() : d === tomorrow ? 'DUE TOMORROW · ' + nice(d).toUpperCase() : d <= soon ? nice(d).toUpperCase() : 'LATER';
   list.slice(0, st.limit).forEach(r => { const l = label(r.date); let g = groups.find(x => x.label === l); if (!g) groups.push(g = { label: l, items: [] }); g.items.push(r); });
 
-  const chip = r => r.query ? '<span class="pill st-queried">Queried</span>' : r.status === 'submitted' ? (r.late ? '<span class="pill urgent">Urgent</span>' : '<span class="pill new">New</span>') : statusChip(r.status);
-  const flag = r => { const c = clashes(db, r)[0]; const un = unavailable(db, r);
+  const chip = r => r.query ? '<span class="pill st-queried">Queried</span>' : statusChip(r.status, r);
+  const flag = r => { if (r.flag) return r.flag; const c = clashes(db, r)[0]; const un = unavailable(db, r);
     return un.length ? `${un.length} item${un.length > 1 ? 's' : ''} we don’t have` : c ? `Short ${Math.max(1, c.need + c.used - c.have)} × ${c.item.name}` : r.reply ? 'Teacher replied' : r.late && r.status === 'submitted' ? 'Late · sent ' + new Date(r.createdAt || r.updatedAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : r.hodApproved ? 'HOD approved' : ''; };
   const newN = db.requests.filter(r => r.status === 'submitted').length;
   const low = db.inventory.filter(i => Number(i.min) > 0 && totalStock(i) < Number(i.min)).length;
@@ -44,7 +45,7 @@ export async function render(el, [selId]) {
   el.innerHTML = `<div class="page">
     <header class="page-head">
       <div><div class="eyebrow">${esc(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}</div><h1 class="h1">Request queue</h1></div>
-      <div class="chips"><span class="pill new">${newN} new</span><a class="pill urgent" href="#/inventory?flag=low" style="text-decoration:none">${low} low-stock items</a><span class="pill st-accepted">Prep booked today: ${Math.floor(todayMin / 60)} h ${todayMin % 60} min</span></div>
+      <div class="chips"><a class="pill st-submitted" href="#/requests" data-tab="new" style="text-decoration:none">${newN} late to approve</a><a class="pill urgent" href="#/inventory?flag=low" style="text-decoration:none">${low} low-stock items</a><span class="pill st-accepted">Prep booked today: ${Math.floor(todayMin / 60)} h ${todayMin % 60} min</span></div>
     </header>
     <div class="row gap wrap">
       <div class="chips">${Object.entries(tabs).map(([k, [l, f]]) => `<button class="chip${st.tab === k ? ' on' : ''}" data-tab="${k}">${esc(l)} ${db.requests.filter(f).length}</button>`).join('')}</div>
@@ -68,6 +69,21 @@ export async function render(el, [selId]) {
   if (sel) wireSheet(el.querySelector('#sheet'), sel, () => render(el, [sel.id]));
 }
 
+/** Change / cancel while nobody has started preparing it (red); postpone any time before the lesson. */
+export function teacherActions(r) {
+  const edit = teacherCanEdit(r), move = canPostpone(r);
+  if (!edit && !move) return '';
+  return `<div class="row gap small wrap">${edit ? `<a class="linkbtn" href="#/order?id=${esc(r.id)}">${r.status === 'draft' ? 'Continue draft' : 'Change'}</a>` : ''}
+    ${move ? `<a class="linkbtn" href="#/order?postpone=${esc(r.id)}">Postpone</a>` : ''}
+    ${edit ? `<button class="linkbtn danger" data-cancel="${esc(r.id)}">Cancel</button>` : ''}
+    ${!edit ? '<span class="muted">The technicians have started preparing it — talk to them to change or cancel it.</span>' : ''}</div>`;
+}
+
+export async function cancelRequest(id) {
+  if (!(await confirmBox('Cancel this practical? The technicians will be told.', 'Cancel it'))) return;
+  try { await call('updateRequest', { id, patch: { status: 'cancelled' } }); toast('Cancelled — the technicians have been told'); await reload(); } catch (e) { toast(e.message === 'locked' ? 'The technicians have already started preparing it — talk to them.' : e.message, 'bad'); }
+}
+
 /** Teacher view: every request I've made. */
 function mine(el) {
   const today = iso(new Date()); const all = mineOf(session.me);
@@ -83,7 +99,8 @@ function mine(el) {
       ${r.query ? `<div class="note query"><strong>Technician asks:</strong> ${esc(r.query)} — reply from <a href="#/home">Home</a>.</div>` : ''}
       ${r.techNotes && r.status === 'rejected' ? `<div class="note bad">${esc(r.techNotes)}</div>` : ''}
       ${r.rating ? `<div class="small muted">Your rating: ★ ${esc(r.rating)}${r.feedback ? ' · ' + esc(r.feedback) : ''}</div>` : ''}
-      ${['draft', 'submitted', 'accepted', 'in_progress', 'ready'].includes(r.status) && r.date >= today ? `<div class="row gap small"><a class="linkbtn" href="#/order?id=${esc(r.id)}">${r.status === 'draft' ? 'Continue draft' : 'Change'}</a></div>` : ''}
+      ${r.date >= today ? teacherActions(r) : ''}
     </article>`; }).join('') || '<p class="muted">Nothing here.</p>'}</section></div>`;
   el.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { st.mine = b.dataset.t; mine(el); });
+  el.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => cancelRequest(b.dataset.cancel));
 }

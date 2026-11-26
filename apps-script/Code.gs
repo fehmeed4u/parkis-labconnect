@@ -27,7 +27,7 @@ var TABLES = {
   InventoryLog: ['at', 'by', 'itemId', 'item', 'room', 'change', 'reason'],
   Hazcards:     ['code', 'title', 'url'],
   Library:      ['id', 'title', 'grade', 'subject', 'course', 'topic', 'kit', 'prepMinutes', 'method'],
-  Requests:     ['id', 'createdAt', 'updatedAt', 'teacherEmail', 'teacher', 'class', 'grade', 'subject', 'date', 'start', 'end', 'room', 'timetabledRoom', 'practicalId', 'title', 'sets', 'kit', 'notes', 'status', 'prep', 'late', 'lateChoice', 'swapWith', 'offer', 'techNotes', 'rating', 'feedback', 'history', 'query', 'reply', 'hodApproved']
+  Requests:     ['id', 'createdAt', 'updatedAt', 'teacherEmail', 'teacher', 'class', 'grade', 'subject', 'date', 'start', 'end', 'room', 'timetabledRoom', 'practicalId', 'title', 'sets', 'kit', 'notes', 'status', 'prep', 'late', 'lateChoice', 'swapWith', 'offer', 'techNotes', 'rating', 'feedback', 'history', 'query', 'reply', 'hodApproved', 'flag', 'postponedFrom']
 };
 var AUTH_COLS = ['passwordHash', 'salt', 'mustChange'];
 var SESSION_HOURS = 12, HASH_ROUNDS = 2000, MAX_FAILS = 5;
@@ -227,6 +227,7 @@ function route_(action, d, me) {
     case 'bootstrap': return bootstrap_(me);
     case 'saveRequest': return saveRequest_(d.request, me);
     case 'updateRequest': return updateRequest_(d.id, d.patch, me);
+    case 'postponeRequest': return postponeRequest_(d.id, d.slot, me);
     case 'adjustStock': return adjustStock_(d, me);
     case 'upsert': return upsert_(d.table, d.row, me);
     case 'remove': return remove_(d.table, d.key, me);
@@ -256,18 +257,57 @@ function bootstrap_(me) {
 
 /* ---------- requests ---------- */
 
+/* Request rules — the same as ruleSave / ruleUpdate / rulePostpone in assets/js/logic.js; keep the two in step.
+   draft → accepted (sent on time: booked straight away) or submitted (sent late: waiting for approval)
+   accepted → in_progress → ready → done, or rejected / cancelled. Teachers can change or cancel only until preparation starts. */
+function notStarted_(r) { return r.status === 'submitted' || (r.status === 'accepted' && !(Number(r.prep) > 0)); }
+function teacherCanEdit_(r) { return r.status === 'draft' || notStarted_(r); }
+function canPostpone_(r) { return ['submitted', 'accepted', 'in_progress', 'ready'].indexOf(r.status) >= 0; }
+function at_(date, start) { return date + ' ' + start; }
+function isoDay_(d) { return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'); }
+function isLate_(dateStr) {
+  var settings = {}; read_('Settings').forEach(function (r) { settings[r.key] = r.value; });
+  var lead = Number(settings.leadDays) || 3, hol = Array.isArray(settings.holidays) ? settings.holidays : [];
+  var p = String(dateStr).split('-').map(Number), d = new Date(p[0], p[1] - 1, p[2]), n = 0;
+  while (n < lead) { d.setDate(d.getDate() - 1); var k = d.getDay(); if (k !== 0 && k !== 6 && hol.indexOf(isoDay_(d)) < 0) n++; }
+  return isoDay_(new Date()) > isoDay_(d);
+}
+function ownRequest_(r, me) { return r.teacherEmail === me.email; }
+
 function saveRequest_(r, me) {
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     var now = new Date().toISOString();
     var rows = read_('Requests');
-    var existing = r.id ? rows.filter(function (x) { return x.id === r.id; })[0] : null;
-    if (existing && me.role === 'teacher' && existing.teacherEmail !== me.email) throw new Error('forbidden');
-    if (!existing) { r.id = 'r' + Utilities.getUuid().slice(0, 8); r.createdAt = now; r.teacherEmail = me.email; r.teacher = r.teacher || me.name; }
+    var ex = r.id ? rows.filter(function (x) { return x.id === r.id; })[0] : null;
+    var staff = me.role !== 'teacher';
+    if (ex && !staff && !ownRequest_(ex, me)) throw new Error('forbidden');
+    if (ex && !staff && !teacherCanEdit_(ex)) throw new Error('locked');
+    if (r.status === 'draft') { if (ex && ex.status !== 'draft') throw new Error('already_sent'); r.prep = 0; }
+    else {
+      var late = isLate_(r.date);
+      if (!ex || ex.status === 'draft') { r.late = late; r.status = staff || !late ? 'accepted' : 'submitted'; r.prep = 0; }
+      else {
+        r.prep = ex.prep; r.late = ex.late;
+        if (staff) r.status = ex.status;
+        else {
+          var moved = at_(r.date, r.start) !== at_(ex.date, ex.start);
+          if (ex.status === 'submitted') { r.status = late ? 'submitted' : 'accepted'; r.late = late; }
+          else if (moved && late && at_(r.date, r.start) < at_(ex.date, ex.start)) { r.status = 'submitted'; r.late = true; }
+          else r.status = 'accepted';
+          r.flag = 'Changed by the teacher';
+        }
+      }
+    }
+    if (!ex) {
+      r.id = 'r' + Utilities.getUuid().slice(0, 8); r.createdAt = now; r.teacher = r.teacher || me.name;
+      var owner = staff ? read_('Users').filter(function (u) { return u.name === r.teacher && u.role === 'teacher'; })[0] : null; // ordered for a teacher: it is theirs
+      r.teacherEmail = owner ? String(owner.email).toLowerCase() : me.email;
+    }
+    else { r.teacherEmail = ex.teacherEmail; r.createdAt = ex.createdAt; }
     r.updatedAt = now;
-    r.history = (existing && existing.history || []).concat([{ at: now, by: me.name, what: existing ? 'edited' : (r.status === 'draft' ? 'draft saved' : 'submitted') }]);
-    if (me.role === 'teacher' && existing && ['accepted', 'in_progress', 'ready'].indexOf(existing.status) >= 0) r.status = 'submitted'; // changes go back to the technicians
-    writeRow_('Requests', 'id', Object.assign({}, existing || {}, r));
+    r.history = (ex && ex.history || []).concat([{ at: now, by: me.name, what: ex ? 'edited' : (r.status === 'draft' ? 'draft saved' : r.status === 'submitted' ? 'sent late — waiting for approval' : 'booked') }]);
+    writeRow_('Requests', 'id', Object.assign({}, ex || {}, r));
     return r;
   } finally { lock.releaseLock(); }
 }
@@ -279,17 +319,39 @@ function updateRequest_(id, patch, me) {
     if (!r) throw new Error('not_found');
     var teacherFields = ['status', 'rating', 'feedback', 'lateChoice', 'reply', 'query'];
     if (me.role === 'teacher') {
-      if (r.teacherEmail !== me.email) throw new Error('forbidden');
+      if (!ownRequest_(r, me)) throw new Error('forbidden');
       Object.keys(patch).forEach(function (k) { if (teacherFields.indexOf(k) < 0) throw new Error('forbidden_field:' + k); });
-      if (patch.status && ['cancelled', 'done', 'submitted'].indexOf(patch.status) < 0) throw new Error('forbidden_status');
+      if (patch.status === 'cancelled') { if (!teacherCanEdit_(r)) throw new Error('locked'); if (r.status !== 'draft') patch.flag = 'Cancelled by the teacher'; }
+      else if (patch.status && patch.status !== 'done') throw new Error('forbidden_status');
     }
-    var now = new Date().toISOString();
-    var what = Object.keys(patch).map(function (k) { return k + ' → ' + (typeof patch[k] === 'object' ? JSON.stringify(patch[k]) : patch[k]); }).join(', ');
-    r = Object.assign(r, patch, { updatedAt: now });
-    r.history = (r.history || []).concat([{ at: now, by: me.name, what: what }]);
-    writeRow_('Requests', 'id', r);
-    return r;
+    return writeRequestPatch_(r, patch, me, Object.keys(patch).map(function (k) { return k + ' → ' + (typeof patch[k] === 'object' ? JSON.stringify(patch[k]) : patch[k]); }).join(', '));
   } finally { lock.releaseLock(); }
+}
+
+function postponeRequest_(id, slot, me) {
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var r = read_('Requests').filter(function (x) { return x.id === id; })[0];
+    if (!r) throw new Error('not_found');
+    if (me.role === 'teacher' && !ownRequest_(r, me)) throw new Error('forbidden');
+    if (!canPostpone_(r)) throw new Error('cannot_postpone');
+    var now = new Date(), nowAt = isoDay_(now) + ' ' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'HH:mm');
+    if (at_(slot.date, slot.start) <= nowAt) throw new Error('lesson_started');
+    if (me.role === 'teacher' && at_(slot.date, slot.start) <= at_(r.date, r.start)) throw new Error('not_later');
+    var p = String(r.date).split('-').map(Number);
+    var from = Utilities.formatDate(new Date(p[0], p[1] - 1, p[2]), Session.getScriptTimeZone(), 'EEE d MMM') + ' ' + r.start;
+    var patch = { date: slot.date, start: slot.start, end: slot.end, room: slot.room, timetabledRoom: slot.timetabledRoom || slot.room,
+      postponedFrom: r.postponedFrom || at_(r.date, r.start), flag: 'Postponed by the ' + (me.role === 'teacher' ? 'teacher' : 'technicians') + ' from ' + from };
+    return writeRequestPatch_(r, patch, me, 'postponed to ' + slot.date + ' ' + slot.start);
+  } finally { lock.releaseLock(); }
+}
+
+function writeRequestPatch_(r, patch, me, what) {
+  var now = new Date().toISOString();
+  r = Object.assign(r, patch, { updatedAt: now });
+  r.history = (r.history || []).concat([{ at: now, by: me.name, what: what }]);
+  writeRow_('Requests', 'id', r);
+  return r;
 }
 
 /* ---------- inventory ---------- */

@@ -1,10 +1,10 @@
 // Data layer. The same actions run against the browser (demo) or the Google Sheet (live).
 import { CONFIG } from './config.js';
-import { iso, addDays, monday, DAYS, isLabRoom, min } from './logic.js';
+import { iso, addDays, monday, DAYS, isLabRoom, min, ruleSave, ruleUpdate, rulePostpone } from './logic.js';
 
 export const db = { settings: {}, users: [], labs: [], timetable: [], inventory: [], hazcards: [], library: [], requests: [], log: [] };
 export const session = { me: null, idToken: null, token: null };
-const KEY = 'sp_demo_db_v1';
+const KEY = 'sp_demo_db_v2'; // v2: on-time requests are booked straight away (no accept step)
 const TABLE_KEY = { Settings: 'settings', Users: 'users', Labs: 'labs', Timetable: 'timetable', Inventory: 'inventory', Hazcards: 'hazcards', Library: 'library', Requests: 'requests', InventoryLog: 'log' };
 export const TABLES = Object.keys(TABLE_KEY);
 const KEYCOL = { Users: 'email', Labs: 'room', Timetable: 'id', Inventory: 'id', Hazcards: 'code', Library: 'id', Requests: 'id' };
@@ -58,7 +58,7 @@ function sampleRequests(d) {
       out.push({ id: 'r' + (++n), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), teacherEmail: '', teacher: t.teacher, class: t.class, grade: t.grade, subject: t.subject,
         date, start: t.start, end: t.end, room: t.room, timetabledRoom: t.room, practicalId: p.id, title: p.title, sets,
         kit: p.kit.map(k => ({ itemId: k.itemId, name: k.name, qty: k.perGroup * sets })), notes: '',
-        status: past ? 'done' : (n % 4 === 0 ? 'submitted' : 'accepted'), prep: past ? 2 : n % 3, late: n % 9 === 0, lateChoice: n % 9 === 0 ? 'draft' : '', history: [] });
+        status: past ? 'done' : (n % 6 === 0 ? 'submitted' : 'accepted'), prep: past ? 2 : n % 6 === 0 ? 0 : n % 3, late: n % 6 === 0, lateChoice: n % 6 === 0 ? 'draft' : '', history: [] });
     });
   });
   // make the demo teacher's emails line up
@@ -133,16 +133,27 @@ function demoAction(action, data) {
   switch (action) {
     case 'bootstrap': { const d = JSON.parse(JSON.stringify(demo)); d.users = d.users.map(publicUser); return d; }
     case 'saveRequest': {
-      const r = data.request; const ex = r.id && demo.requests.find(x => x.id === r.id);
+      const ex = data.request.id && demo.requests.find(x => x.id === data.request.id);
+      if (ex && me.role === 'teacher' && ex.teacherEmail !== me.email && ex.teacher !== me.name) throw new Error('forbidden');
+      const r = ruleSave(ex, data.request, me, demo.settings);
       if (!ex) Object.assign(r, { id: uid('r'), createdAt: now, teacherEmail: me.email, teacher: r.teacher || me.name });
-      r.updatedAt = now; r.history = (ex?.history || []).concat([{ at: now, by: me.name, what: ex ? 'edited' : (r.status === 'draft' ? 'draft saved' : 'submitted') }]);
-      if (me.role === 'teacher' && ex && ['accepted', 'in_progress', 'ready'].includes(ex.status)) r.status = 'submitted';
+      r.updatedAt = now; r.history = (ex?.history || []).concat([{ at: now, by: me.name, what: ex ? 'edited' : (r.status === 'draft' ? 'draft saved' : r.status === 'submitted' ? 'sent late — waiting for approval' : 'booked') }]);
       if (ex) Object.assign(ex, r); else demo.requests.push(r); saveDemo(); return r;
     }
     case 'updateRequest': {
       const r = demo.requests.find(x => x.id === data.id); if (!r) throw new Error('not_found');
-      Object.assign(r, data.patch, { updatedAt: now });
-      r.history = (r.history || []).concat([{ at: now, by: me.name, what: Object.keys(data.patch).map(k => k + ' → ' + (typeof data.patch[k] === 'object' ? JSON.stringify(data.patch[k]) : data.patch[k])).join(', ') }]);
+      if (me.role === 'teacher' && r.teacherEmail !== me.email && r.teacher !== me.name) throw new Error('forbidden');
+      const patch = ruleUpdate(r, data.patch, me);
+      Object.assign(r, patch, { updatedAt: now });
+      r.history = (r.history || []).concat([{ at: now, by: me.name, what: Object.keys(patch).map(k => k + ' → ' + (typeof patch[k] === 'object' ? JSON.stringify(patch[k]) : patch[k])).join(', ') }]);
+      saveDemo(); return r;
+    }
+    case 'postponeRequest': {
+      const r = demo.requests.find(x => x.id === data.id); if (!r) throw new Error('not_found');
+      if (me.role === 'teacher' && r.teacherEmail !== me.email && r.teacher !== me.name) throw new Error('forbidden');
+      const patch = rulePostpone(r, data.slot, me);
+      Object.assign(r, patch, { updatedAt: now });
+      r.history = (r.history || []).concat([{ at: now, by: me.name, what: 'postponed to ' + patch.date + ' ' + patch.start }]);
       saveDemo(); return r;
     }
     case 'adjustStock': {

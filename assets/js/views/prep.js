@@ -2,6 +2,7 @@ import { db, session, call } from '../store.js';
 import { esc, nice, niceLong, hazcardsFor, roomName, clashes, unavailable, gradeOf, prepOf } from '../logic.js';
 import { hazcardModal, toast, promptBox, statusChip, iconImg } from '../ui.js';
 import { reload } from '../app.js';
+import { flagNote } from './week.js';
 
 const seen = new Set(); let showWhere = true; const picked = {};
 const whereOf = it => Object.entries(it.rooms || {}).filter(([, q]) => Number(q) > 0)
@@ -27,10 +28,11 @@ export function sheet(r) {
       <div><div class="kicker">Prep sheet · ${esc(String(r.id).toUpperCase())}</div>
         <h2 class="h2" style="font-family:var(--display);font-size:24px;margin-top:4px">${esc(r.title)}</h2>
         <div class="muted" style="margin-top:4px">${esc(r.teacher)} · ${esc(r.class)} · ${esc(niceLong(r.date))} · ${esc(r.start)}–${esc(r.end)} · ${esc(roomName(db, r.room))} · <strong>${esc(r.sets)} groups</strong></div></div>
-      <div class="row gap wrap no-print">${isStaff && r.status === 'submitted' ? `<button class="btn" data-act="query">Query</button><button class="btn danger-outline" data-act="reject">Reject</button><button class="btn pri" data-act="accept">Accept &amp; reserve stock</button>`
+      <div class="row gap wrap no-print">${isStaff && r.status === 'submitted' ? `<button class="btn" data-act="query">Query</button><button class="btn danger-outline" data-act="reject">Reject</button><button class="btn pri" data-act="accept">Approve late request</button>`
         : statusChip(r.status, r)}</div>
     </div>
-    ${r.status === 'submitted' && r.late ? `<div class="note bad"><strong>Late request.</strong> Sent ${esc(new Date(r.createdAt || r.updatedAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}${r.offer ? ' · you offered: ' + esc(r.offer) : ''}. <button class="linkbtn danger" data-act="offer">Offer another day / time</button></div>` : ''}
+    ${flagNote(r)}
+    ${r.status === 'submitted' ? `<div class="note late-w"><strong>Late request — waiting for approval.</strong> Sent ${esc(new Date(r.createdAt || r.updatedAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}${r.offer ? ' · you offered: ' + esc(r.offer) : ''}. <button class="linkbtn" data-act="offer">Offer another day / time</button></div>` : ''}
     ${hz.length ? `<div class="chips"><span class="kicker danger" style="margin-right:4px">Hazcards</span>${hz.map(h => `<button class="chip hz" data-hz="${esc(h.code)}">${esc(h.code)}${h.title ? ' · ' + esc(h.title) : ''}</button>`).join('')}</div>` : ''}
     ${(un => un.length ? `<div class="short"><span><strong>Not in our inventory:</strong> ${un.map(u => `${esc(u.name)} × ${esc(u.qty)}${u.reason === 'none in stock' ? ' (none in stock)' : ''}`).join(', ')}. The teacher sent it anyway — order, borrow or suggest a swap.</span>
       ${isStaff ? `<button class="btn small no-print" data-act="query" data-q="${esc(`We don't have ${un.map(u => u.name).join(', ')}. Could you use something else, or should we try to order it in time?`)}">Ask the teacher</button>` : ''}</div>` : '')(unavailable(db, r))}
@@ -54,9 +56,8 @@ export function sheet(r) {
     ${isStaff ? `<div class="no-print"><label class="fld">Technician notes (breakages, returns)<textarea data-tn rows="2">${esc(r.techNotes || '')}</textarea></label><div style="margin-top:8px"><button class="btn small" data-save-tn>Save notes</button></div></div>
     <div class="sheet-foot no-print">
       <button class="btn" data-print>Print ${esc(r.sets)} tray cards</button>
-      ${r.status !== 'submitted' ? `<div class="seg" role="group" aria-label="Preparation"><button data-prep="0" aria-pressed="${p === 0}">Not started</button><button data-prep="1" aria-pressed="${p === 1}">In progress</button><button data-prep="2" aria-pressed="${p === 2}">Ready</button></div>` : ''}
-      ${r.status !== 'submitted' && p < 2 ? '<button class="btn pri" data-prep="2">Mark ready</button>' : ''}
-      ${r.status !== 'done' && r.status !== 'submitted' ? '<button class="btn" data-done>Mark done (after the lesson)</button>' : ''}
+      ${!['submitted', 'cancelled', 'rejected'].includes(r.status) ? `<div class="seg traffic" role="group" aria-label="Preparation — teachers see this colour too"><button class="d0" data-prep="0" aria-pressed="${p === 0}">Not started</button><button class="d1" data-prep="1" aria-pressed="${p === 1}">In prep</button><button class="d2" data-prep="2" aria-pressed="${p === 2}">Ready</button></div>` : ''}
+      ${!['done', 'submitted', 'cancelled', 'rejected'].includes(r.status) ? '<button class="btn" data-done>Mark done (after the lesson)</button>' : ''}
       <a class="btn" href="#/order?id=${esc(r.id)}">Edit request</a>
     </div>` : ''}
     <section class="labels print-only">${Array.from({ length: Number(r.sets) || 0 }, (_, g) => `<div class="label"><strong>${esc(r.title)} · tray ${g + 1}</strong><span>${esc(r.class)} · ${esc(nice(r.date))} ${esc(r.start)} · ${esc(roomName(db, r.room))}</span><span>${r.kit.map(k => esc(k.name)).join(', ')}</span></div>`).join('')}</section>`;
@@ -73,7 +74,8 @@ export function wireSheet(root, r, rerender) {
   root.querySelectorAll('[data-prep]').forEach(b => b.onclick = () => { const k = Number(b.dataset.prep); upd({ prep: k, status: k === 2 ? 'ready' : k === 1 ? 'in_progress' : 'accepted' }, ['Not started', 'In progress', 'Ready'][k]); });
   root.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {
     const a = b.dataset.act;
-    if (a === 'accept') upd({ status: 'accepted', offer: '', query: '' }, 'Accepted — stock reserved');
+    if (a === 'accept') upd({ status: 'accepted', offer: '', query: '' }, 'Approved');
+    if (a === 'seen') upd({ flag: '' }, r.status === 'cancelled' ? 'Removed from the board' : 'Marked as seen');
     if (a === 'reject') { const v = await promptBox('Reject this request?', [{ name: 'techNotes', label: 'Reason for the teacher' }], 'Reject'); if (v) upd({ status: 'rejected', techNotes: v.techNotes }, 'Rejected'); }
     if (a === 'offer') { const v = await promptBox('Offer another day or time', [{ name: 'offer', label: 'What can you do? e.g. “Thu 26 Nov 14:00 in S4.05”' }], 'Send to teacher'); if (v && v.offer) upd({ offer: v.offer }, 'Offer sent'); }
     if (a === 'query') { const v = await promptBox('Ask the teacher a question', [{ name: 'query', label: 'Your question', value: b.dataset.q || r.query || '' }], 'Send query'); if (v && v.query) upd({ query: v.query, reply: '' }, 'Query sent'); }
