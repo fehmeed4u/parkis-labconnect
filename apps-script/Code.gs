@@ -541,7 +541,7 @@ function sdsMatch_(idx, names) {
   vs.forEach(function (v) { var k = sdsKey_(v, true); if (k.length > 2) (idx.relaxed[k] || []).forEach(function (f) { if (rx.indexOf(f) < 0) rx.push(f); }); });
   if (!rx.length) vs.forEach(function (v) { var k = sdsBag_(v); if (k.length > 2) (idx.bag[k] || []).forEach(function (f) { if (rx.indexOf(f) < 0) rx.push(f); }); });
   // last try: the file name is the chemical's name plus a word or two ("dichlorophenolindophenol DCPIP")
-  if (!rx.length) vs.forEach(function (v) { var k = sdsKey_(v, true); if (k.length >= 8) idx.all.forEach(function (x) { if (x.key.indexOf(k) === 0 && k.length >= 0.6 * x.key.length && rx.indexOf(x.f) < 0) rx.push(x.f); }); });
+  if (!rx.length) vs.forEach(function (v) { var k = sdsKey_(v, true); if (k.length >= 8) idx.all.forEach(function (x) { if (x.key.indexOf(k) === 0 && k.length >= 0.75 * x.key.length && rx.indexOf(x.f) < 0) rx.push(x.f); }); });
   return rx.length ? { file: pick(rx), exact: false } : null;
 }
 
@@ -552,6 +552,8 @@ function sdsMatch_(idx, names) {
  *   exact match  → sds = the file's preview link
  *   close match  → sds = the link, and sdsNote says "Close match — check …" (e.g. a different hydrate or concentration)
  *   no match     → sdsNote = "No SDS found"
+ * Chemicals with no file in the folder are looked up in an optional "SDS web links" tab (columns id, chemical, sds, source,
+ * productOnSds, note — import data/sds-web-links.csv from the repository): free SDS PDFs from the suppliers' own websites.
  * Links that someone typed in by hand are kept; run linkSds(null, true) to redo every link.
  * The "SDS report" tab lists every chemical with its file, plus the files nothing matched and the near-duplicate files.
  */
@@ -562,12 +564,23 @@ function linkSds(folderId, overwrite) {
   while (it.hasNext()) { var f = it.next(); if (/\.(pdf|docx?)$/i.test(f.getName())) files.push({ name: f.getName(), url: 'https://drive.google.com/file/d/' + f.getId() + '/preview' }); }
   var idx = sdsIndex_(files), used = {}, report = [], n = { exact: 0, close: 0, none: 0, kept: 0 };
   var auto = function (r) { return !r.sds || /^(Close match|No SDS found)/.test(r.sdsNote || '') || files.some(function (f) { return f.url === r.sds; }); };
+  var web = {}, webSheet = SpreadsheetApp.getActive().getSheetByName('SDS web links');
+  if (webSheet && webSheet.getLastRow() > 1) {
+    var wv = webSheet.getDataRange().getValues(), wh = wv.shift().map(String);
+    wv.forEach(function (x) { var o = {}; wh.forEach(function (h, j) { o[h] = x[j]; }); if (!o.sds) return;
+      if (o.id) web['id:' + o.id] = o; if (o.chemical) web['name:' + sdsKey_(sdsBase_(o.chemical))] = o; });
+  }
+  n.web = 0;
   var rows = read_('Inventory');
   rows.forEach(function (r) {
     if (r.list !== 'Chemicals') return;
     if (r.sds && !overwrite && !auto(r)) { n.kept++; report.push([r.id, r.name, '', 'Kept (typed in by hand)', r.sds]); return; }
     var names = [r.name].concat(String(r.altNames || '').split(/\s*[;|]\s*/).filter(String));
     var m = sdsMatch_(idx, names);
+    var w = !m && (web['id:' + r.id] || web['name:' + sdsKey_(sdsBase_(r.name))]);
+    if (w && (!w.chemical || sdsKey_(sdsBase_(w.chemical)) === sdsKey_(sdsBase_(r.name)))) { // a supplier's SDS from the web
+      r.sds = String(w.sds); r.sdsNote = w.note ? 'Close match — check it is the right one: ' + w.note : '';
+      n.web++; report.push([r.id, r.name, w.productOnSds || '', 'Web — ' + (w.source || 'supplier'), r.sds]); return; }
     if (!m) { r.sds = ''; r.sdsNote = 'No SDS found'; n.none++; report.push([r.id, r.name, '', 'None', '']); return; }
     used[m.file.url] = 1; r.sds = m.file.url;
     r.sdsNote = m.exact ? '' : 'Close match — check it is the right one: ' + m.file.name.replace(/\.(pdf|docx?)$/i, '');
@@ -583,7 +596,7 @@ function linkSds(folderId, overwrite) {
   out.push(['', '', '', '', ''], ['Files no chemical matched (' + unused.length + ')', '', '', '', '']); unused.forEach(function (x) { out.push(['', x, '', '', '']); });
   out.push(['', '', '', '', ''], ['Files that look like the same chemical (' + dups.length + ') — keep one', '', '', '', '']); dups.forEach(function (x) { out.push(['', x, '', '', '']); });
   sh.getRange(1, 1, out.length, 5).setValues(out); sh.getRange(1, 1, 1, 5).setFontWeight('bold'); sh.setFrozenRows(1);
-  Logger.log('SDS: ' + n.exact + ' exact, ' + n.close + ' close (check), ' + n.none + ' none, ' + n.kept + ' kept. ' + files.length + ' files, ' + unused.length + ' unused. See the "SDS report" tab.');
+  Logger.log('SDS: ' + n.exact + ' exact, ' + n.close + ' close (check), ' + n.web + ' from the web, ' + n.none + ' none, ' + n.kept + ' kept. ' + files.length + ' files, ' + unused.length + ' unused. See the "SDS report" tab.');
 }
 
 /** Nightly copy of the whole sheet into a "Practicals backups" folder. Run installBackup() once. */

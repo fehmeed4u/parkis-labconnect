@@ -4,7 +4,7 @@ import { iso, addDays, monday, DAYS, isLabRoom, min, ruleSave, ruleUpdate, ruleP
 
 export const db = { settings: {}, users: [], labs: [], timetable: [], inventory: [], hazcards: [], library: [], requests: [], log: [] };
 export const session = { me: null, idToken: null, token: null };
-const KEY = 'sp_demo_db_v2'; // v2: on-time requests are booked straight away (no accept step)
+const KEY = 'sp_demo_db_v3'; // v3: SDS links in the sample inventory (v2: on-time requests booked straight away)
 const TABLE_KEY = { Settings: 'settings', Users: 'users', Labs: 'labs', Timetable: 'timetable', Inventory: 'inventory', Hazcards: 'hazcards', Library: 'library', Requests: 'requests', InventoryLog: 'log' };
 export const TABLES = Object.keys(TABLE_KEY);
 const KEYCOL = { Users: 'email', Labs: 'room', Timetable: 'id', Inventory: 'id', Hazcards: 'code', Library: 'id', Requests: 'id' };
