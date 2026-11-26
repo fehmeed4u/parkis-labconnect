@@ -444,3 +444,14 @@ a.opt:hover { border-color: var(--pri); box-shadow: 0 0 0 2px var(--pri-soft); c
 .opt.locked .opt-ic { background: var(--violet-soft); color: var(--violet-ink); }
 .opt.mini { min-height: 0; padding: 14px 16px; gap: 4px; }
 .opt.mini strong { font-size: 14px; }
+
+/* reflections */
+.stars { display: flex; gap: 4px; }
+.stars button { border: 0; background: none; font-size: 30px; line-height: 1; color: var(--line-2); cursor: pointer; padding: 2px; }
+.stars button.on { color: var(--amber, #d89a00); }
+.stars-s { color: var(--amber, #d89a00); letter-spacing: 1px; font-size: 13px; }
+.refl { border-top: 1px solid var(--line-soft); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.refl:first-child { border-top: 0; padding-top: 0; }
+.reflect-notes .rules { margin: 4px 0 0; }
+.vlog summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.vlog .hist li { grid-template-columns: 36px 1fr auto; }

@@ -8,6 +8,7 @@ A small website for a science department:
 - **Everyone** can see the inventory: room by room, with the cabinet position and a picture. Technicians and the HOD can change it; teachers can only view it.
 - **Booking rule:** requests are due a set number of working days ahead (default 3). Late requests are flagged, and the teacher chooses to talk to the technicians first or to send a draft anyway.
 - **Hazcards:** the CLEAPSS hazcards for every chemical in an order pop up for the teacher when ordering and for the technician when preparing.
+- **Reflections:** after a practical, teachers write a short reflection (rating, what went well, what to change, timing, number of groups, kit changes, prep time, a tip and safety notes). Kit changes they made when ordering are picked up automatically. By default the reflection updates the library practical straight away (new version, with history); technicians and the HOD can undo the latest change. The tips, safety notes and latest reflection are shown every time someone orders that practical again, and on the prep sheet.
 - **Records:** every request is kept with its date and time, so the practical library grows by itself. Every table can be exported and imported as JSON or CSV (CSV opens in Excel).
 
 It is a plain static site (HTML, CSS, JavaScript; no build step). The landing page is the sign-in page. Where the data lives depends on `assets/js/config.js`:
@@ -47,7 +48,7 @@ You need a school Google account that can create Sheets and Apps Script projects
 1. Create a new Google Sheet, e.g. *Science Practicals data*.
 2. **Extensions → Apps Script.** Delete what is in `Code.gs` and paste in `apps-script/Code.gs` from this repository.
 3. Click the gear (**Project Settings**), tick **Show "appsscript.json" manifest file in editor**, then replace that file’s contents with `apps-script/appsscript.json`.
-4. Back in the editor, choose the function **`setup`** in the toolbar and click **Run**. Accept the permission prompts. This creates one tab per table (Settings, Users, Labs, Timetable, Inventory, InventoryLog, Hazcards, Library, Requests).
+4. Back in the editor, choose the function **`setup`** in the toolbar and click **Run**. Accept the permission prompts. This creates one tab per table (Settings, Users, Labs, Timetable, Inventory, InventoryLog, Hazcards, Library, Requests, Reflections).
 
 ### 2.2 (Optional) A Google sign-in client ID
 
@@ -78,7 +79,7 @@ In Apps Script, **Project Settings → Script properties → Add**:
 
 When you change `Code.gs` later, use **Deploy → Manage deployments → edit (pencil) → Version: New version** so the URL stays the same.
 
-> **Updating from an earlier version:** recent updates added columns (`passwordHash`, `salt`, `mustChange` on Users; `query`, `reply`, `hodApproved` on Requests; `orderApproved` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
+> **Updating from an earlier version:** recent updates added columns (`passwordHash`, `salt`, `mustChange` on Users; `query`, `reply`, `hodApproved` on Requests; `orderApproved` on Inventory; `defaultSets`, `tips`, `version`, `updatedAt`, `updatedBy`, `changelog` on Library, and a new Reflections tab). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
 
 ### 2.5 Connect the site to the Google Sheet
 

@@ -1,7 +1,8 @@
 import { db, session } from '../store.js';
 import { esc, nice, iso, addDays, roomName, gradeOf, clashes, totalStock, prepOf, stageOf, STAGES } from '../logic.js';
 import { statusChip } from '../ui.js';
-import { go } from '../app.js';
+import { go, reload } from '../app.js';
+import { openReflection, reflectionOf } from './reflect.js';
 import { sheet, wireSheet } from './prep.js';
 import { mineOf } from './home.js';
 
@@ -78,7 +79,9 @@ function mine(el) {
       ${r.query ? `<div class="note query"><strong>Technician asks:</strong> ${esc(r.query)} — reply from <a href="#/home">Home</a>.</div>` : ''}
       ${r.techNotes && r.status === 'rejected' ? `<div class="note bad">${esc(r.techNotes)}</div>` : ''}
       ${r.rating ? `<div class="small muted">Your rating: ★ ${esc(r.rating)}${r.feedback ? ' · ' + esc(r.feedback) : ''}</div>` : ''}
+      ${st.mine === 'past' && !r.rating && !reflectionOf(r.id) ? `<div class="row gap small"><button class="btn small" data-reflect="${esc(r.id)}">Write a reflection</button></div>` : ''}
       ${['draft', 'submitted', 'accepted', 'in_progress', 'ready'].includes(r.status) && r.date >= today ? `<div class="row gap small"><a class="linkbtn" href="#/order?id=${esc(r.id)}">${r.status === 'draft' ? 'Continue draft' : 'Change'}</a></div>` : ''}
     </article>`; }).join('') || '<p class="muted">Nothing here.</p>'}</section></div>`;
   el.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { st.mine = b.dataset.t; mine(el); });
+  el.querySelectorAll('[data-reflect]').forEach(b => b.onclick = async () => { if (await openReflection(db.requests.find(r => r.id === b.dataset.reflect))) reload(); });
 }

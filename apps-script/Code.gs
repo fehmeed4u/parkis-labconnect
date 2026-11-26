@@ -26,12 +26,13 @@ var TABLES = {
   Inventory:    ['id', 'list', 'category', 'name', 'size', 'rooms', 'storage', 'min', 'orderRequired', 'supplier', 'ref', 'hazcards', 'icon', 'photo', 'shelfLife', 'storageGroup', 'notes', 'orderApproved'],
   InventoryLog: ['at', 'by', 'itemId', 'item', 'room', 'change', 'reason'],
   Hazcards:     ['code', 'title', 'url'],
-  Library:      ['id', 'title', 'grade', 'subject', 'course', 'topic', 'kit', 'prepMinutes', 'method'],
-  Requests:     ['id', 'createdAt', 'updatedAt', 'teacherEmail', 'teacher', 'class', 'grade', 'subject', 'date', 'start', 'end', 'room', 'timetabledRoom', 'practicalId', 'title', 'sets', 'kit', 'notes', 'status', 'prep', 'late', 'lateChoice', 'swapWith', 'offer', 'techNotes', 'rating', 'feedback', 'history', 'query', 'reply', 'hodApproved']
+  Library:      ['id', 'title', 'grade', 'subject', 'course', 'topic', 'kit', 'prepMinutes', 'method', 'defaultSets', 'tips', 'version', 'updatedAt', 'updatedBy', 'changelog'],
+  Requests:     ['id', 'createdAt', 'updatedAt', 'teacherEmail', 'teacher', 'class', 'grade', 'subject', 'date', 'start', 'end', 'room', 'timetabledRoom', 'practicalId', 'title', 'sets', 'kit', 'notes', 'status', 'prep', 'late', 'lateChoice', 'swapWith', 'offer', 'techNotes', 'rating', 'feedback', 'history', 'query', 'reply', 'hodApproved'],
+  Reflections:  ['id', 'createdAt', 'teacherEmail', 'teacher', 'requestId', 'practicalId', 'class', 'grade', 'date', 'rating', 'wentWell', 'toImprove', 'timing', 'setsRight', 'suggestedSets', 'kitChanges', 'prepMinutes', 'safetyNotes', 'tipForNextTime', 'applied', 'version', 'pinned']
 };
 var AUTH_COLS = ['passwordHash', 'salt', 'mustChange'];
 var SESSION_HOURS = 12, HASH_ROUNDS = 2000, MAX_FAILS = 5;
-var JSON_COLS = { rooms: 1, storage: 1, hazcards: 1, kit: 1, history: 1, value: 1 };
+var JSON_COLS = { rooms: 1, storage: 1, hazcards: 1, kit: 1, history: 1, value: 1, tips: 1, changelog: 1, kitChanges: 1, applied: 1 };
 var WRITE_ROLES = {
   Settings: ['admin'], Users: ['admin'], Labs: ['admin'], Timetable: ['admin'], Hazcards: ['admin'],
   Inventory: ['admin', 'technician'], Library: ['admin', 'technician', 'teacher']
@@ -227,6 +228,8 @@ function route_(action, d, me) {
     case 'bootstrap': return bootstrap_(me);
     case 'saveRequest': return saveRequest_(d.request, me);
     case 'updateRequest': return updateRequest_(d.id, d.patch, me);
+    case 'saveReflection': return saveReflection_(d.reflection || {}, !!d.apply, me);
+    case 'undoLibraryChange': return undoLibraryChange_(d.practicalId, me);
     case 'adjustStock': return adjustStock_(d, me);
     case 'upsert': return upsert_(d.table, d.row, me);
     case 'remove': return remove_(d.table, d.key, me);
@@ -249,7 +252,7 @@ function bootstrap_(me) {
     settings: settings,
     users: me.role === 'admin' ? read_('Users').map(publicUser_) : read_('Users').map(function (u) { return { email: u.email, name: u.name, role: u.role }; }),
     labs: read_('Labs'), timetable: read_('Timetable'), inventory: read_('Inventory'),
-    hazcards: read_('Hazcards'), library: read_('Library'), requests: read_('Requests'),
+    hazcards: read_('Hazcards'), library: read_('Library'), requests: read_('Requests'), reflections: read_('Reflections'),
     log: me.role === 'teacher' ? [] : read_('InventoryLog').slice(-300)
   };
 }
@@ -289,6 +292,82 @@ function updateRequest_(id, patch, me) {
     r.history = (r.history || []).concat([{ at: now, by: me.name, what: what }]);
     writeRow_('Requests', 'id', r);
     return r;
+  } finally { lock.releaseLock(); }
+}
+
+/* ---------- reflections ---------- */
+/* Same rules as applyReflection / undoLibraryChange in assets/js/logic.js. */
+
+function reflectionSummary_(p, f) {
+  var s = [];
+  (f.kitChanges || []).forEach(function (c) {
+    s.push(c.action === 'add' ? '+ ' + c.perGroup + ' × ' + c.name + ' per group' : c.action === 'remove' ? '− ' + c.name : c.name + ': ' + (c.from == null ? '?' : c.from) + ' → ' + c.perGroup + ' per group');
+  });
+  if (Number(f.suggestedSets) > 0 && Number(f.suggestedSets) !== Number(p.defaultSets || 0)) s.push('Default sets ' + (p.defaultSets || '—') + ' → ' + f.suggestedSets);
+  if (Number(f.prepMinutes) > 0 && Number(f.prepMinutes) !== Number(p.prepMinutes || 0)) s.push('Prep time ' + (p.prepMinutes || '—') + ' → ' + f.prepMinutes + ' min');
+  if (f.tipForNextTime) s.push('New tip for next time');
+  if (f.safetyNotes) s.push('New safety note');
+  return s;
+}
+function applyReflection_(p, f, by, at, reflectionId) {
+  var summary = reflectionSummary_(p, f); if (!summary.length) return null;
+  var before = { kit: p.kit || [], prepMinutes: p.prepMinutes === undefined ? '' : p.prepMinutes, defaultSets: p.defaultSets === undefined ? '' : p.defaultSets, tips: p.tips || [] };
+  var kit = JSON.parse(JSON.stringify(p.kit || []));
+  (f.kitChanges || []).forEach(function (c) {
+    if (c.action === 'remove') { kit = kit.filter(function (k) { return k.itemId !== c.itemId; }); return; }
+    var k = kit.filter(function (x) { return x.itemId === c.itemId; })[0];
+    if (k) k.perGroup = Number(c.perGroup); else kit.push({ itemId: c.itemId, name: c.name, perGroup: Number(c.perGroup) });
+  });
+  var tips = (p.tips || []).slice();
+  if (f.safetyNotes) tips.push({ kind: 'safety', text: String(f.safetyNotes), by: by, at: at, reflectionId: reflectionId });
+  if (f.tipForNextTime) tips.push({ kind: 'tip', text: String(f.tipForNextTime), by: by, at: at, reflectionId: reflectionId });
+  var version = (Number(p.version) || 1) + 1;
+  var np = Object.assign({}, p, { kit: kit, tips: tips, version: version, updatedAt: at, updatedBy: by,
+    prepMinutes: Number(f.prepMinutes) > 0 ? Number(f.prepMinutes) : p.prepMinutes,
+    defaultSets: Number(f.suggestedSets) > 0 ? Number(f.suggestedSets) : p.defaultSets });
+  np.changelog = (p.changelog || []).concat([{ version: version, at: at, by: by, reflectionId: reflectionId, summary: summary, before: before }]);
+  return np;
+}
+
+/** A teacher reflects on a practical they ran. Saves it, closes the request and (if asked) updates the library practical. */
+function saveReflection_(f, apply, me) {
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var r = read_('Requests').filter(function (x) { return x.id === f.requestId; })[0];
+    if (!r) throw new Error('not_found');
+    if (me.role === 'teacher' && r.teacherEmail !== me.email) throw new Error('forbidden');
+    var now = new Date().toISOString();
+    var refl = { id: 'f' + Utilities.getUuid().slice(0, 8), createdAt: now, teacherEmail: me.email, teacher: me.name, requestId: r.id, practicalId: r.practicalId,
+      class: r.class, grade: r.grade, date: r.date, rating: Number(f.rating) || '', wentWell: String(f.wentWell || ''), toImprove: String(f.toImprove || ''),
+      timing: String(f.timing || ''), setsRight: String(f.setsRight || ''), suggestedSets: Number(f.suggestedSets) || '', kitChanges: Array.isArray(f.kitChanges) ? f.kitChanges : [],
+      prepMinutes: Number(f.prepMinutes) || '', safetyNotes: String(f.safetyNotes || ''), tipForNextTime: String(f.tipForNextTime || ''), applied: [], version: '', pinned: false };
+    var p = read_('Library').filter(function (x) { return x.id === r.practicalId; })[0];
+    if (apply && p) {
+      var np = applyReflection_(p, refl, me.name, now, refl.id);
+      if (np) { writeRow_('Library', 'id', np); refl.applied = np.changelog[np.changelog.length - 1].summary; refl.version = np.version; }
+    }
+    appendRow_('Reflections', refl);
+    r.rating = refl.rating; r.feedback = refl.toImprove || refl.wentWell; r.status = 'done'; r.updatedAt = now;
+    r.history = (r.history || []).concat([{ at: now, by: me.name, what: 'reflection written' + (refl.applied.length ? ' · library updated to v' + refl.version : '') }]);
+    writeRow_('Requests', 'id', r);
+    return refl;
+  } finally { lock.releaseLock(); }
+}
+
+/** Technicians and the HOD can undo the latest automatic change to a library practical. */
+function undoLibraryChange_(id, me) {
+  requireRole_(me, ['admin', 'technician']);
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var p = read_('Library').filter(function (x) { return x.id === id; })[0]; if (!p) throw new Error('not_found');
+    var log = p.changelog || [], last = null;
+    for (var i = log.length - 1; i >= 0; i--) if (!log[i].undone && log[i].before) { last = log[i]; break; }
+    if (!last) throw new Error('nothing_to_undo');
+    var now = new Date().toISOString(), version = (Number(p.version) || 1) + 1;
+    var np = Object.assign({}, p, last.before, { version: version, updatedAt: now, updatedBy: me.name });
+    np.changelog = log.map(function (c) { return c === last ? Object.assign({}, c, { undone: true }) : c; }).concat([{ version: version, at: now, by: me.name, summary: ['Undid v' + last.version + ' (' + last.by + ')'] }]);
+    writeRow_('Library', 'id', np);
+    return np;
   } finally { lock.releaseLock(); }
 }
 

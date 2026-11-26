@@ -113,3 +113,53 @@ export function fromCSV(text) {
     return [h.trim(), v];
   })));
 }
+
+/* ---------- reflections: what changed since the library version, and applying it ---------- */
+const r2 = n => Math.round(n * 100) / 100;
+/** Differences between the kit a teacher actually ordered (qty for `sets` groups) and the library kit (per group). */
+export function kitDiff(req, practical) {
+  const sets = Number(req.sets) || 1; const lib = (practical && practical.kit) || []; const used = req.kit || [];
+  const out = [];
+  used.forEach(k => { const pg = r2((Number(k.qty) || 0) / sets); const l = lib.find(x => x.itemId === k.itemId);
+    if (!l) out.push({ itemId: k.itemId, name: k.name, action: 'add', perGroup: pg });
+    else if (Number(l.perGroup) !== pg) out.push({ itemId: k.itemId, name: k.name, action: 'change', from: Number(l.perGroup), perGroup: pg }); });
+  lib.forEach(l => { if (!used.some(k => k.itemId === l.itemId)) out.push({ itemId: l.itemId, name: l.name, action: 'remove', from: Number(l.perGroup) }); });
+  return out;
+}
+/** One line per change a reflection would make to the library practical. */
+export function reflectionSummary(p, f) {
+  const s = [];
+  (f.kitChanges || []).forEach(c => s.push(c.action === 'add' ? `+ ${c.perGroup} × ${c.name} per group` : c.action === 'remove' ? `− ${c.name}` : `${c.name}: ${c.from ?? '?'} → ${c.perGroup} per group`));
+  if (Number(f.suggestedSets) > 0 && Number(f.suggestedSets) !== Number(p.defaultSets || 0)) s.push(`Default sets ${p.defaultSets || '—'} → ${f.suggestedSets}`);
+  if (Number(f.prepMinutes) > 0 && Number(f.prepMinutes) !== Number(p.prepMinutes || 0)) s.push(`Prep time ${p.prepMinutes || '—'} → ${f.prepMinutes} min`);
+  if (f.tipForNextTime) s.push('New tip for next time');
+  if (f.safetyNotes) s.push('New safety note');
+  return s;
+}
+/** Returns the updated practical (new object) after applying a reflection. Mirrored in Code.gs (applyReflection_). */
+export function applyReflection(p, f, by, at, reflectionId) {
+  const before = { kit: p.kit || [], prepMinutes: p.prepMinutes ?? '', defaultSets: p.defaultSets ?? '', tips: p.tips || [] };
+  const summary = reflectionSummary(p, f); if (!summary.length) return null;
+  let kit = JSON.parse(JSON.stringify(p.kit || []));
+  (f.kitChanges || []).forEach(c => {
+    if (c.action === 'remove') kit = kit.filter(k => k.itemId !== c.itemId);
+    else { const k = kit.find(x => x.itemId === c.itemId); if (k) k.perGroup = Number(c.perGroup); else kit.push({ itemId: c.itemId, name: c.name, perGroup: Number(c.perGroup) }); }
+  });
+  const tips = (p.tips || []).slice();
+  if (f.safetyNotes) tips.push({ kind: 'safety', text: f.safetyNotes, by, at, reflectionId });
+  if (f.tipForNextTime) tips.push({ kind: 'tip', text: f.tipForNextTime, by, at, reflectionId });
+  const version = (Number(p.version) || 1) + 1;
+  return { ...p, kit, tips,
+    prepMinutes: Number(f.prepMinutes) > 0 ? Number(f.prepMinutes) : p.prepMinutes,
+    defaultSets: Number(f.suggestedSets) > 0 ? Number(f.suggestedSets) : p.defaultSets,
+    version, updatedAt: at, updatedBy: by,
+    changelog: (p.changelog || []).concat([{ version, at, by, reflectionId, summary, before }]) };
+}
+/** Undo the latest change: restore what it replaced and log it. */
+export function undoLibraryChange(p, by, at) {
+  const log = p.changelog || []; const last = [...log].reverse().find(c => !c.undone && c.before);
+  if (!last) return null;
+  const version = (Number(p.version) || 1) + 1;
+  return { ...p, ...last.before, version, updatedAt: at, updatedBy: by,
+    changelog: log.map(c => c === last ? { ...c, undone: true } : c).concat([{ version, at, by, summary: [`Undid v${last.version} (${last.by})`] }]) };
+}

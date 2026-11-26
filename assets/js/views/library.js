@@ -2,6 +2,7 @@ import { db, session, call } from '../store.js';
 import { esc, nice, iso, hazcardsFor, roomName, toCSV } from '../logic.js';
 import { $, hazcardModal, promptBox, toast, confirmBox, download } from '../ui.js';
 import { go, reload } from '../app.js';
+import { librarySection, openReflection, reflectionOf } from './reflect.js';
 
 const st = { grade: 'All', topic: 'All', q: '', sel: null };
 
@@ -46,6 +47,8 @@ export async function render(el, _rest, params = new URLSearchParams()) {
   };
   el.querySelectorAll('[data-hz]').forEach(b => b.onclick = () => { const cards = hazcardsFor(db, sel.kit); const i = cards.findIndex(c => c.code === b.dataset.hz); hazcardModal(cards.slice(i).concat(cards.slice(0, i)), 'HAZCARD'); });
   $('#expP').onclick = () => download('practical-library-' + iso(new Date()) + '.csv', toCSV(db.library.map(p => ({ ...p, timesRun: runs(p.id).length, lastRun: lastRun(p)?.date || '' }))), 'text/csv');
+  const uv = $('#undoV'); if (uv) uv.onclick = async () => { if (await confirmBox('Undo the latest change to this practical?', 'Undo')) { try { await call('undoLibraryChange', { practicalId: sel.id }); toast('Change undone'); reload(); } catch (e) { toast(e.message, 'bad'); } } };
+  el.querySelectorAll('[data-reflect]').forEach(b => b.onclick = async () => { if (await openReflection(db.requests.find(r => r.id === b.dataset.reflect))) reload(); });
   const ed = $('#editP'); if (ed) ed.onclick = () => edit(sel);
   const np = $('#newP'); if (np) np.onclick = () => edit({});
   const del = $('#delP'); if (del) del.onclick = async () => { if (await confirmBox('Remove this practical from the library?', 'Remove')) { await call('remove', { table: 'Library', key: sel.id }); st.sel = null; reload(); } };
@@ -60,15 +63,18 @@ export async function render(el, _rest, params = new URLSearchParams()) {
 
 function detail(p, runs, canEdit, orderCtx) {
   const cards = hazcardsFor(db, p.kit); const today = iso(new Date());
-  const badge = r => r.rating ? `<span class="pill warn">★ ${esc(r.rating)}</span>` : r.imported ? '<span class="pill">Imported</span>' : r.date >= today ? '<span class="pill st-accepted">Booked</span>' : `<span class="pill">${esc(r.status === 'done' ? 'Done' : r.status)}</span>`;
+  const mine = r => r.teacher === session.me.name || r.teacherEmail === session.me.email;
+  const badge = r => !r.rating && !reflectionOf(r.id) && r.date < today && mine(r) ? `<button class="btn small" data-reflect="${esc(r.id)}">Reflect</button>` : r.rating ? `<span class="pill warn">★ ${esc(r.rating)}</span>` : r.imported ? '<span class="pill">Imported</span>' : r.date >= today ? '<span class="pill st-accepted">Booked</span>' : `<span class="pill">${esc(r.status === 'done' ? 'Done' : r.status)}</span>`;
   const day = d => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   return `<aside class="card side-col sticky" style="gap:16px">
     <div><div class="muted xs" style="font-weight:500">G${esc(p.grade)} · ${esc(p.subject)}${p.course ? ' · ' + esc(p.course) : ''}</div><h2 class="h2" style="font-family:var(--display);font-size:24px;margin-top:4px">${esc(p.title)}</h2>${p.topic ? `<div class="muted">Topic: ${esc(p.topic)}</div>` : ''}</div>
     <div><h3 class="h3">Per group</h3><ul class="rules" style="line-height:1.6">${p.kit.map(k => `<li>${esc(k.perGroup)} × ${esc(k.name)}</li>`).join('') || '<li class="muted">No kit listed yet</li>'}</ul></div>
     ${cards.length ? `<div class="chips"><span class="kicker danger">Hazcards</span>${cards.map(c => `<button class="chip hz" data-hz="${esc(c.code)}">${esc(c.code)}${c.title ? ' · ' + esc(c.title) : ''}</button>`).join('')}</div>` : ''}
+    ${librarySection(p, canEdit)}
     <div><h3 class="h3">Done before</h3>${runs.length ? `<ul class="hist">${runs.slice(0, 8).map(r => `<li><b>${esc(day(r.date))}</b><span class="muted">${esc(r.class)} · ${esc(r.teacher)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} sets</span>${badge(r)}</li>`).join('')}</ul>` : '<p class="muted small">Not run yet.</p>'}</div>
+    ${p.prepMinutes || p.defaultSets ? `<div class="muted small">${p.prepMinutes ? 'Prep ' + esc(p.prepMinutes) + ' min' : ''}${p.prepMinutes && p.defaultSets ? ' · ' : ''}${p.defaultSets ? esc(p.defaultSets) + ' groups by default' : ''}</div>` : ''}
     ${p.method || canEdit ? `<div class="links">${p.method ? `<a href="${esc(p.method)}" target="_blank" rel="noopener">Method sheet</a>` : ''}${p.method && canEdit ? '<span class="sep"></span>' : ''}${canEdit ? '<button class="linkbtn" id="editP">Edit</button><span class="sep"></span><button class="linkbtn danger" id="delP">Remove</button>' : ''}</div>` : ''}
     <div><button class="btn pri big block" id="useP">${orderCtx ? 'Use for this lesson' : 'Use for my order'}</button>
-    <p class="muted xs" style="margin-top:8px">Fills in the kit and sets from the last time. You only pick the class, date and lab.</p></div>
+    <p class="muted xs" style="margin-top:8px">Fills in the kit and sets from the latest version, including changes from teachers’ reflections. You only pick the class, date and lab.</p></div>
   </aside>`;
 }

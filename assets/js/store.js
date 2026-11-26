@@ -1,13 +1,13 @@
 // Data layer. The same actions run against the browser (demo) or the Google Sheet (live).
 import { CONFIG } from './config.js';
-import { iso, addDays, monday, DAYS, isLabRoom, min } from './logic.js';
+import { iso, addDays, monday, DAYS, isLabRoom, min, applyReflection, undoLibraryChange } from './logic.js';
 
-export const db = { settings: {}, users: [], labs: [], timetable: [], inventory: [], hazcards: [], library: [], requests: [], log: [] };
+export const db = { settings: {}, users: [], labs: [], timetable: [], inventory: [], hazcards: [], library: [], requests: [], reflections: [], log: [] };
 export const session = { me: null, idToken: null, token: null };
 const KEY = 'sp_demo_db_v1';
-const TABLE_KEY = { Settings: 'settings', Users: 'users', Labs: 'labs', Timetable: 'timetable', Inventory: 'inventory', Hazcards: 'hazcards', Library: 'library', Requests: 'requests', InventoryLog: 'log' };
+const TABLE_KEY = { Settings: 'settings', Users: 'users', Labs: 'labs', Timetable: 'timetable', Inventory: 'inventory', Hazcards: 'hazcards', Library: 'library', Requests: 'requests', Reflections: 'reflections', InventoryLog: 'log' };
 export const TABLES = Object.keys(TABLE_KEY);
-const KEYCOL = { Users: 'email', Labs: 'room', Timetable: 'id', Inventory: 'id', Hazcards: 'code', Library: 'id', Requests: 'id' };
+const KEYCOL = { Users: 'email', Labs: 'room', Timetable: 'id', Inventory: 'id', Hazcards: 'code', Library: 'id', Requests: 'id', Reflections: 'id' };
 const uid = p => p + Math.random().toString(36).slice(2, 10);
 
 /* ---------------- live (Google Apps Script) ---------------- */
@@ -34,11 +34,11 @@ function ensureTestUsers() {
   if (added) saveDemo();
 }
 async function loadDemo() {
-  try { const s = localStorage.getItem(KEY); if (s) { demo = JSON.parse(s); ensureTestUsers(); return; } } catch (e) {}
+  try { const s = localStorage.getItem(KEY); if (s) { demo = JSON.parse(s); demo.reflections = demo.reflections || []; ensureTestUsers(); return; } } catch (e) {}
   const names = ['settings', 'users', 'labs', 'timetable', 'inventory', 'hazcards', 'library'];
   const parts = await Promise.all(names.map(n => fetch(`data/demo/${n}.json`).then(r => r.json())));
   demo = Object.fromEntries(names.map((n, i) => [n, parts[i]]));
-  demo.requests = sampleRequests(demo); demo.log = [];
+  demo.requests = sampleRequests(demo); demo.reflections = []; demo.log = [];
   saveDemo(); ensureTestUsers();
 }
 export function resetDemo() { try { localStorage.removeItem(KEY); } catch (e) {} location.reload(); }
@@ -145,6 +145,21 @@ function demoAction(action, data) {
       r.history = (r.history || []).concat([{ at: now, by: me.name, what: Object.keys(data.patch).map(k => k + ' → ' + (typeof data.patch[k] === 'object' ? JSON.stringify(data.patch[k]) : data.patch[k])).join(', ') }]);
       saveDemo(); return r;
     }
+    case 'saveReflection': {
+      const f = data.reflection; const r = demo.requests.find(x => x.id === f.requestId); if (!r) throw new Error('not_found');
+      if (me.role === 'teacher' && r.teacherEmail && r.teacherEmail !== me.email && r.teacher !== me.name) throw new Error('forbidden');
+      const refl = { ...f, id: uid('f'), createdAt: now, teacherEmail: me.email, teacher: me.name, practicalId: r.practicalId, class: r.class, grade: r.grade, date: r.date, applied: [] };
+      const i = demo.library.findIndex(p => p.id === r.practicalId);
+      if (data.apply && i >= 0) { const np = applyReflection(demo.library[i], f, me.name, now, refl.id); if (np) { demo.library[i] = np; refl.applied = np.changelog[np.changelog.length - 1].summary; refl.version = np.version; } }
+      demo.reflections.push(refl);
+      Object.assign(r, { rating: Number(f.rating) || '', feedback: f.toImprove || f.wentWell || '', status: 'done', updatedAt: now });
+      r.history = (r.history || []).concat([{ at: now, by: me.name, what: 'reflection written' + (refl.applied.length ? ' · library updated to v' + refl.version : '') }]);
+      saveDemo(); return refl;
+    }
+    case 'undoLibraryChange': {
+      can(['admin', 'technician']); const i = demo.library.findIndex(p => p.id === data.practicalId); if (i < 0) throw new Error('not_found');
+      const np = undoLibraryChange(demo.library[i], me.name, now); if (!np) throw new Error('nothing_to_undo'); demo.library[i] = np; saveDemo(); return np;
+    }
     case 'adjustStock': {
       can(['admin', 'technician']);
       const it = demo.inventory.find(i => i.id === data.itemId); it.rooms[data.room] = Math.max(0, (Number(it.rooms[data.room]) || 0) + Number(data.change));
@@ -210,7 +225,8 @@ export async function refresh() {
   Object.assign(db, d, { settings: norm });
   db.inventory.forEach(i => { i.rooms = i.rooms || {}; i.storage = i.storage || {}; i.hazcards = Array.isArray(i.hazcards) ? i.hazcards : []; });
   db.requests.forEach(r => { r.kit = Array.isArray(r.kit) ? r.kit : []; r.prep = Number(r.prep) || 0; r.late = r.late === true || r.late === 'TRUE' || r.late === 'true'; });
-  db.library.forEach(p => { p.kit = Array.isArray(p.kit) ? p.kit : []; p.grade = Number(p.grade) || p.grade; });
+  db.library.forEach(p => { p.kit = Array.isArray(p.kit) ? p.kit : []; p.grade = Number(p.grade) || p.grade; p.tips = Array.isArray(p.tips) ? p.tips : []; p.changelog = Array.isArray(p.changelog) ? p.changelog : []; p.version = Number(p.version) || 1; });
+  db.reflections = (db.reflections || []).map(f => ({ ...f, kitChanges: Array.isArray(f.kitChanges) ? f.kitChanges : [], applied: Array.isArray(f.applied) ? f.applied : [] })).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   db.timetable.forEach(t => { t.grade = Number(t.grade) || t.grade; });
   db.requests.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || min(a.start) - min(b.start));
   return db;

@@ -2,6 +2,7 @@ import { db, session, call } from '../store.js';
 import { esc, nice, niceLong, deadline, isLate, isLabRoom, labStatus, clashes, hazcardsFor, roomName, totalStock, iso, addDays, monday, min, fmtMin, dayCode, isSchoolDay, parse, DAYS, gradeOf } from '../logic.js';
 import { $, modal, closeModal, toast, hazcardModal, statusChip } from '../ui.js';
 import { go, reload } from '../app.js';
+import { notesCard } from './reflect.js';
 
 /*
   Ordering a practical, in three steps (all on #/order, steered by the query string):
@@ -152,7 +153,7 @@ function form(el, q, editing, teacher, lesson) {
   if (!S || S._for !== key) {
     const p = q.get('practical') ? db.library.find(x => x.id === q.get('practical')) : null;
     S = editing ? JSON.parse(JSON.stringify(editing)) : { teacher, kit: [], sets: 6, title: p?.title || '', practicalId: p?.id || '', notes: '', lateChoice: '' };
-    if (p && !editing) { const last = db.requests.filter(r => r.practicalId === p.id && Number(r.sets) > 0).sort((a, b) => b.date.localeCompare(a.date))[0]; if (last) S.sets = Number(last.sets);
+    if (p && !editing) { const last = db.requests.filter(r => r.practicalId === p.id && Number(r.sets) > 0).sort((a, b) => b.date.localeCompare(a.date))[0]; if (Number(p.defaultSets) > 0) S.sets = Number(p.defaultSets); else if (last) S.sets = Number(last.sets);
       S.kit = p.kit.map(k => ({ itemId: k.itemId, name: k.name, perGroup: k.perGroup, qty: k.perGroup * S.sets })); }
     if (editing) S.kit.forEach(k => { k.perGroup = k.perGroup || Math.max(1, Math.round(k.qty / (S.sets || 1))); });
     S._for = key;
@@ -188,6 +189,7 @@ function form(el, q, editing, teacher, lesson) {
     <div class="cols">
       <form class="main-col" id="of" onsubmit="return false">
         ${lessonCard(S, editing ? new URLSearchParams({ id: editing.id }) : q, S.teacher, editing)}
+        ${notesCard(fromLib, { teacher: S.teacher })}
         ${inClassroom ? `<section class="card stack"><h2 class="h2">Pick a lab</h2>
           <div class="note warn">This lesson is in <strong>${esc(roomName(db, S.timetabledRoom))}</strong>, a classroom. Choose a lab for the practical:</div>
           <div class="labs" role="radiogroup" aria-label="Lab">${labs.map(l => `<button type="button" role="radio" aria-checked="${S.room === l.room}" class="labrow${S.room === l.room ? ' on' : ''}" data-lab="${esc(l.room)}" ${l.state === 'practical' ? 'disabled' : ''}>
@@ -199,7 +201,7 @@ function form(el, q, editing, teacher, lesson) {
 
         <section class="card stack">
           <div class="row between wrap"><h2 class="h2">Practical and equipment</h2>${!editing ? `<a class="small" href="#/library?${new URLSearchParams({ order: orderLink(q, { mode: null, practical: null }).slice(1), grade: S.grade || gradeOf(S.class) || '' })}">Pick from the library instead</a>` : ''}</div>
-          ${fromLib ? `<div class="note ok">From the library: <strong>${esc(fromLib.title)}</strong>. The kit and sets are from last time — change anything you need.</div>` : ''}
+          ${fromLib ? `<div class="note ok">From the library: <strong>${esc(fromLib.title)}</strong>. The kit and sets are from the latest library version${fromLib.version > 1 ? ` (v${esc(fromLib.version)})` : ''} — change anything you need.</div>` : ''}
           <div class="grid2"><label class="fld">Practical<select id="practical"><option value="">— New practical (type the name below) —</option>${lib.map(p => `<option value="${esc(p.id)}"${p.id === S.practicalId ? ' selected' : ''}>${esc(p.title)} · G${esc(p.grade)} ${esc(p.subject)}</option>`).join('')}</select></label>
           <label class="fld">Number of sets<input id="sets" type="number" min="1" max="40" value="${esc(S.sets)}"></label></div>
           <label class="fld"${S.practicalId ? ' hidden' : ''}>Practical name<input id="title" value="${esc(S.title)}" required placeholder="e.g. Sound waves on an oscilloscope"></label>

@@ -2,6 +2,7 @@ import { db, session, call } from '../store.js';
 import { esc, iso, nice, parse, deadline, roomName, gradeOf, stageOf, STAGES } from '../logic.js';
 import { statusChip, toast, confirmBox, promptBox } from '../ui.js';
 import { reload } from '../app.js';
+import { openReflection } from './reflect.js';
 
 export const mineOf = me => db.requests.filter(r => r.teacherEmail === me.email || r.teacher === me.name);
 const isOpen = r => !['cancelled', 'rejected', 'done'].includes(r.status);
@@ -15,7 +16,7 @@ export async function render(el) {
   const live = r => r.date >= today && isOpen(r) && !r.query;
   const lead = db.settings.leadDays;
   const counts = [['Drafts', mine.filter(r => r.status === 'draft').length], ['With technician', mine.filter(r => live(r) && ['submitted', 'accepted', 'in_progress'].includes(r.status)).length],
-    ['Queried', queried.length], ['Ready', mine.filter(r => live(r) && r.status === 'ready').length], ['Feedback due', feedback.length]];
+    ['Queried', queried.length], ['Ready', mine.filter(r => live(r) && r.status === 'ready').length], ['Reflections due', feedback.length]];
 
   el.innerHTML = `
   <div class="page">
@@ -52,8 +53,8 @@ export async function render(el) {
           ${queried.map(r => `<div class="action query"><div class="kicker">${r.query ? 'Query from technician' : 'New time offered'}</div>
             <div>${esc(r.title)}, ${esc(r.class)}: ${esc(r.query || ('they suggest ' + r.offer))}</div>
             <div class="row gap">${r.query ? `<button class="btn pri small" data-reply="${esc(r.id)}">Reply</button>` : `<button class="btn pri small" data-accept-offer="${esc(r.id)}">Accept</button><a class="btn small" href="#/order?id=${esc(r.id)}">Change</a>`}</div></div>`).join('')}
-          ${feedback.slice(0, 4).map(r => `<div class="action"><div class="kicker">Feedback due</div><div>${esc(r.title)}, ${esc(r.class)} — how did it go?</div>
-            <div class="row"><button class="btn small" data-fb="${esc(r.id)}">Rate in 30 seconds</button></div></div>`).join('')}
+          ${feedback.slice(0, 4).map(r => `<div class="action"><div class="kicker">Reflection due</div><div>${esc(r.title)}, ${esc(r.class)} — how did it go?</div>
+            <div class="row"><button class="btn small" data-fb="${esc(r.id)}">Write a reflection</button></div></div>`).join('')}
           ${!queried.length && !feedback.length ? '<p class="muted small">Nothing right now.</p>' : ''}
         </div></section>
         <section class="card"><h2 class="h2" style="margin-bottom:6px">Booking rules</h2><ul class="rules">
@@ -68,10 +69,7 @@ export async function render(el) {
     const c = e.target.closest('[data-cancel]'), f = e.target.closest('[data-fb]'), o = e.target.closest('[data-accept-offer]'), q = e.target.closest('[data-reply]');
     try {
       if (c && await confirmBox('Cancel this practical?', 'Cancel it')) { await call('updateRequest', { id: c.dataset.cancel, patch: { status: 'cancelled' } }); toast('Cancelled'); reload(); }
-      if (f) {
-        const v = await promptBox('How did it go?', [{ name: 'rating', label: 'Rating (1–5)', options: ['5', '4', '3', '2', '1'], value: '4' }, { name: 'feedback', label: 'Notes (breakages, what to change next time)' }], 'Send');
-        if (v) { await call('updateRequest', { id: f.dataset.fb, patch: { rating: Number(v.rating), feedback: v.feedback, status: 'done' } }); toast('Thanks — saved to the library'); reload(); }
-      }
+      if (f) { const r = db.requests.find(x => x.id === f.dataset.fb); if (r && await openReflection(r)) reload(); }
       if (o) { await call('updateRequest', { id: o.dataset.acceptOffer, patch: { lateChoice: 'offer accepted', status: 'submitted' } }); toast('Accepted — the technicians will update the time'); reload(); }
       if (q) {
         const r = db.requests.find(x => x.id === q.dataset.reply);

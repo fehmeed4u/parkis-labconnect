@@ -5,7 +5,7 @@ import { $, modal, closeModal, toast, confirmBox, download } from '../ui.js';
 import { reload } from '../app.js';
 
 const JSON_COLS = ['rooms', 'storage', 'hazcards', 'kit', 'history'];
-const KEY = { Settings: 'settings', Users: 'users', Labs: 'labs', Timetable: 'timetable', Inventory: 'inventory', Hazcards: 'hazcards', Library: 'library', Requests: 'requests', InventoryLog: 'log' };
+const KEY = { Settings: 'settings', Users: 'users', Labs: 'labs', Timetable: 'timetable', Inventory: 'inventory', Hazcards: 'hazcards', Library: 'library', Requests: 'requests', Reflections: 'reflections', InventoryLog: 'log' };
 const PAGES = { overview: ['Department overview', overview], people: ['People & roles', people], settings: ['Rules & lead times', settings], data: ['Import & export', data] };
 
 export async function render(el, [sub]) {

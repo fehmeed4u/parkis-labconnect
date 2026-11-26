@@ -2,6 +2,7 @@ import { db, session, call } from '../store.js';
 import { esc, nice, niceLong, hazcardsFor, roomName, clashes, gradeOf, prepOf } from '../logic.js';
 import { hazcardModal, toast, promptBox, statusChip, iconImg } from '../ui.js';
 import { reload } from '../app.js';
+import { notesCard } from './reflect.js';
 
 const seen = new Set(); let showWhere = true; const picked = {};
 const whereOf = it => Object.entries(it.rooms || {}).filter(([, q]) => Number(q) > 0)
@@ -37,6 +38,7 @@ export function sheet(r) {
     ${r.query ? `<div class="note query"><strong>You asked the teacher:</strong> ${esc(r.query)}</div>` : ''}
     ${r.reply ? `<div class="note ok"><strong>Teacher replied:</strong> ${esc(r.reply)}</div>` : ''}
     ${r.notes ? `<div class="note"><strong>Teacher’s note:</strong> ${esc(r.notes)}</div>` : ''}
+    <div class="no-print">${notesCard(db.library.find(p => p.id === r.practicalId), { compact: true })}</div>
     <div>
       <div class="row between wrap" style="margin-bottom:10px"><h3 class="h3" style="margin:0">Equipment — pick list</h3>
         <label class="switch no-print"><span>Show where (cabinet)</span><input type="checkbox" data-where ${showWhere ? 'checked' : ''}></label></div>
