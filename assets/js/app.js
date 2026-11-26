@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { db, session, refresh, isDemo, demoUsers, resetDemo, login, logout, changePassword, TEST_LOGINS } from './store.js';
+import { db, session, refresh, isDemo, login, logout, changePassword } from './store.js';
 import { esc } from './logic.js';
 import { $, toast, modal, closeModal } from './ui.js';
 import * as home from './views/home.js';
@@ -12,6 +12,12 @@ import * as inventory from './views/inventory.js';
 import * as admin from './views/admin.js';
 
 const ROUTES = { home, order, library, week, requests, prep, inventory, admin };
+/** Pages each role may open. Anything else sends them to their own home page. */
+const ALLOWED = {
+  teacher: ['home', 'order', 'library', 'requests', 'inventory'],
+  technician: ['week', 'requests', 'prep', 'inventory', 'library', 'order'],
+  admin: Object.keys(ROUTES)
+};
 const NAV = {
   teacher: [['home', 'Home'], ['library', 'Practical library'], ['order', 'Order a practical'], ['requests', 'My requests'], ['inventory', 'Inventory', '(view)']],
   technician: [['requests', 'Request queue'], ['week', 'Week board'], ['inventory', 'Inventory'], ['library', 'Practical library'], ['order', 'Order for a teacher']],
@@ -52,16 +58,14 @@ function shell(active) {
       <div>Signed in as<br><strong>${esc(session.me.name)}</strong><br>${esc(ROLE_LABEL[session.me.role] || session.me.role)}</div>
       ${themePicker()}
       ${session.me.hasPassword ? '<button class="linkbtn small" id="chpw" style="text-align:left">Change password</button>' : ''}
-      <button class="btn small" id="signout">${isDemo() ? 'Switch user' : 'Sign out'}</button>
+      <button class="btn small" id="signout">Sign out</button>
     </div>
   </aside>
   <div class="main">
-    ${isDemo() ? `<div class="demo-bar">Demo mode — data is kept only in this browser. <button class="linkbtn" id="resetDemo">Reset demo data</button></div>` : ''}
     <main id="view" tabindex="-1"></main>
   </div></div>`;
   $('#signout').onclick = async () => { await logout(); saveSession(); go('#/login'); render(); };
   const cp = $('#chpw'); if (cp) cp.onclick = () => passwordDialog();
-  const rd = $('#resetDemo'); if (rd) rd.onclick = resetDemo;
   $('#menu').onclick = () => { const o = $('#sidebar').classList.toggle('open'); $('#menu').setAttribute('aria-expanded', o); };
   wireThemes();
 }
@@ -78,9 +82,8 @@ const authMsg = e => AUTH_ERR[e.message] || (/not_registered/.test(e.message) ? 
 async function loginView() {
   document.documentElement.dataset.theme = 'teal';
   const google = !isDemo() && CONFIG.GOOGLE_CLIENT_ID;
-  const demoPick = isDemo() ? (await demoUsers()).filter(u => ['teacher@demo.school', 'tech@demo.school', 'hod@demo.school'].includes(u.email)) : [];
   $('#app').innerHTML = `<main class="login">
-    <h1 class="h1">Science Practicals</h1>
+    <div><h1 class="h1">Science Practicals</h1><p class="lede">Order, prepare and track the department’s practicals.</p></div>
     <form id="lf" class="card stack" style="width:min(400px,100%);text-align:left">
       <h2 class="h2">Sign in</h2>
       <label class="fld">Username<input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
@@ -90,31 +93,17 @@ async function loginView() {
       <p class="muted xs">New here? The head of department gives you a username and a temporary password. You choose your own password the first time you sign in.</p>
       ${google ? '<hr><div id="gbtn"></div>' : ''}
     </form>
-    ${isDemo() ? `<p class="muted">Demo mode — or try it straight away as:</p>
-      <div class="login-cards">${demoPick.map(u => `<button class="card login-card" data-email="${esc(u.email)}"><strong>${esc(u.name)}</strong><span class="muted">${esc({ teacher: 'Teacher', technician: 'Lab technician', admin: 'Head of department (admin)' }[u.role])}</span></button>`).join('')}</div>
-      <section class="card stack" style="width:min(640px,100%);text-align:left;gap:8px"><h2 class="h3" style="margin:0">Test sign-ins</h2>
-        <table class="tbl"><thead><tr><th>Role</th><th>Username</th><th>Password</th><th></th></tr></thead><tbody>
-        ${TEST_LOGINS.map(t => `<tr><td>${esc({ teacher: 'Teacher', technician: 'Lab technician', admin: 'Head of department' }[t.role])}</td><td><code>${esc(t.email)}</code></td><td><code>${esc(t.password)}</code></td><td class="right"><button type="button" class="btn small" data-fill="${esc(t.email)}">Use</button></td></tr>`).join('')}</tbody></table>
-        <p class="muted xs">Demo mode only. The test teacher is “Teacher C” on the timetable, so they see real lessons and requests.</p></section>
-      <p class="muted small">To use your school’s real data, set up the Google Sheet and switch config.js to live mode (see README).</p>` : ''}
   </main>`;
   $('#lf').onsubmit = async e => {
     e.preventDefault(); const f = new FormData(e.target); const btn = e.target.querySelector('button'); btn.disabled = true; $('#lerr').textContent = '';
-    try { await login(f.get('username'), f.get('password')); saveSession(); await afterSignIn(); }
+    try { await login(f.get('username'), f.get('password')); saveSession(); history.replaceState(null, '', '#/login'); await afterSignIn(); }
     catch (err) { $('#lerr').textContent = authMsg(err); btn.disabled = false; }
   };
-  document.querySelectorAll('[data-fill]').forEach(b => b.onclick = () => { const t = TEST_LOGINS.find(x => x.email === b.dataset.fill);
-    $('#lf [name=username]').value = t.email; $('#lf [name=password]').value = t.password; $('#lf [name=password]').focus(); });
-  document.querySelectorAll('[data-email]').forEach(b => b.onclick = async () => {
-    const u = demoPick.find(x => x.email === b.dataset.email); session.me = { email: u.email, name: u.name, role: u.role, hasPassword: !!u.hasPassword };
-    saveSession(); await boot();
-  });
-  if (!isDemo() && !CONFIG.API_URL) { $('#lerr').textContent = 'config.js is missing API_URL.'; return; }
   if (google) {
     try { await loadScript('https://accounts.google.com/gsi/client'); } catch (e) { return; }
     window.google.accounts.id.initialize({ client_id: CONFIG.GOOGLE_CLIENT_ID, hd: CONFIG.SCHOOL_DOMAIN || undefined, callback: async r => {
       Object.assign(session, { idToken: r.credential, token: null });
-      try { await refresh(); saveSession(); await boot(true); }
+      try { await refresh(); saveSession(); history.replaceState(null, '', '#/login'); await boot(true); }
       catch (e) { session.idToken = null; $('#lerr').textContent = authMsg(e); }
     } });
     window.google.accounts.id.renderButton($('#gbtn'), { theme: 'outline', size: 'large', text: 'signin_with' });
@@ -176,6 +165,7 @@ export async function render() {
   if (!session.me) return loginView();
   if (session.me.mustChange) return firstPasswordView();
   const [name, ...rest] = location.hash.replace(/^#\//, '').split('?')[0].split('/');
+  if (ROUTES[name] && !(ALLOWED[session.me.role] || ALLOWED.teacher).includes(name)) { go('#/' + home_()); return; }
   const view = ROUTES[name] ? name : home_();
   shell(ROUTES[name] ? [name, ...rest].join('/') : view);
   const el = $('#view');
@@ -186,6 +176,6 @@ export async function reload() { await refresh(); await render(); }
 
 window.addEventListener('hashchange', () => render());
 (async () => {
-  try { const s = JSON.parse(sessionStorage.getItem('sp_session') || 'null'); if (s && s.me) Object.assign(session, s); } catch (e) {}
+  try { const s = JSON.parse(sessionStorage.getItem('sp_session') || 'null'); if (s && s.me && (s.token || s.idToken)) Object.assign(session, s); } catch (e) {}
   if (session.me) await boot(); else render();
 })();

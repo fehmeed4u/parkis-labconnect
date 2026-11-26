@@ -22,15 +22,15 @@ async function live(action, data) {
 /* ---------------- demo (localStorage) ---------------- */
 let demo = null;
 function saveDemo() { try { localStorage.setItem(KEY, JSON.stringify(demo)); } catch (e) {} }
-/** Test sign-ins for the demo (passwords are public — demo mode only; data never leaves the browser). */
+/** Test sign-ins while the app is not connected to the Google Sheet (data never leaves the browser). Passwords are in the README. */
 export const TEST_LOGINS = [
-  { email: 'test.teacher', password: 'Teacher-Test-2026', name: 'Teacher C', role: 'teacher', salt: 'demo-test.teacher', passwordHash: 'pCiPAfIotU1+tH1c2YKOKCHr8VIv3KbwP+UWvUH2kvI=' },
-  { email: 'test.labtech', password: 'LabTech-Test-2026', name: 'Test Lab Technician', role: 'technician', salt: 'demo-test.labtech', passwordHash: 'aaPjF/4VXQAjRNJQCv7HxrKA/P7Iw5vg41tkpHyiHm0=' },
-  { email: 'test.hod', password: 'Hod-Test-2026', name: 'Test Head of Department', role: 'admin', salt: 'demo-test.hod', passwordHash: 'ac7AHROm08tbqKBmx4EXzNM1G9N/Qiorzgo1Rm1ERRs=' }
+  { email: 'test.teacher', name: 'Teacher C', role: 'teacher', salt: 'demo-test.teacher', passwordHash: 'pCiPAfIotU1+tH1c2YKOKCHr8VIv3KbwP+UWvUH2kvI=' },
+  { email: 'test.labtech', name: 'Test Lab Technician', role: 'technician', salt: 'demo-test.labtech', passwordHash: 'aaPjF/4VXQAjRNJQCv7HxrKA/P7Iw5vg41tkpHyiHm0=' },
+  { email: 'test.hod', name: 'Test Head of Department', role: 'admin', salt: 'demo-test.hod', passwordHash: 'ac7AHROm08tbqKBmx4EXzNM1G9N/Qiorzgo1Rm1ERRs=' }
 ];
 function ensureTestUsers() {
   let added = false;
-  TEST_LOGINS.forEach(({ password, ...u }) => { if (!demo.users.some(x => String(x.email).toLowerCase() === u.email)) { demo.users.push({ ...u, active: true, mustChange: false }); added = true; } });
+  TEST_LOGINS.forEach(u => { if (!demo.users.some(x => String(x.email).toLowerCase() === u.email)) { demo.users.push({ ...u, active: true, mustChange: false }); added = true; } });
   if (added) saveDemo();
 }
 async function loadDemo() {
@@ -175,7 +175,8 @@ function demoAction(action, data) {
 }
 
 /* ---------------- public API ---------------- */
-export const isDemo = () => CONFIG.MODE !== 'live';
+/** True until config.js has the Apps Script URL: data is then kept in this browser only. */
+export const isDemo = () => !CONFIG.API_URL;
 export async function call(action, data = {}) {
   if (isDemo()) {
     if (!demo) await loadDemo();

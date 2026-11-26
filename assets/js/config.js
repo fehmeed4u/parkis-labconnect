@@ -1,10 +1,8 @@
 // App settings. Edit these after you set up the Google Sheet backend (see README).
 export const CONFIG = {
-  // 'demo'  = runs entirely in this browser with sample data (good for trying it out).
-  // 'live'  = uses your Google Sheet through the Apps Script web app below.
-  MODE: 'demo',
-
-  // Apps Script web-app URL, ending in /exec  (Deploy → Manage deployments → Web app URL)
+  // Apps Script web-app URL, ending in /exec  (Deploy → Manage deployments → Web app URL).
+  // While this is empty the app keeps its data in this browser only (for setting up and testing).
+  // Paste the URL here and it uses your Google Sheet instead.
   API_URL: '',
 
   // Google OAuth client ID (Google Cloud console → APIs & Services → Credentials)

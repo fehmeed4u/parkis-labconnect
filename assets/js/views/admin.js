@@ -175,7 +175,7 @@ function data(p) {
       <fieldset class="seg-radio"><legend class="small">How</legend><label><input type="radio" name="mode" value="replace" checked> Replace the table</label> <label><input type="radio" name="mode" value="append"> Add to the table</label></fieldset>
       <button class="btn pri" id="ido">Import</button>
       <hr><h3 class="h3">Restore a full backup</h3><input type="file" id="bf" accept=".json"><button class="btn danger-outline" id="bdo">Restore everything from backup</button></section></div>
-    ${isDemo() ? '<p class="note">Demo mode: imports are kept in this browser only.</p>' : ''}`;
+    ${isDemo() ? '<p class="note warn">Not connected to the Google Sheet yet (config.js has no API_URL), so imports are kept in this browser only.</p>' : ''}`;
   const stamp = iso(new Date());
   const get = t => call('exportTable', { table: t });
   $('#ejson', p).onclick = async () => { const t = $('#et', p).value; download(`${t}-${stamp}.json`, JSON.stringify(await get(t), null, 2)); };

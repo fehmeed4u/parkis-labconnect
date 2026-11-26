@@ -10,35 +10,33 @@ A small website for a science department:
 - **Hazcards:** the CLEAPSS hazcards for every chemical in an order pop up for the teacher when ordering and for the technician when preparing.
 - **Records:** every request is kept with its date and time, so the practical library grows by itself. Every table can be exported and imported as JSON or CSV (CSV opens in Excel).
 
-It is a plain static site (HTML, CSS, JavaScript; no build step). It runs in two modes:
+It is a plain static site (HTML, CSS, JavaScript; no build step). The landing page is the sign-in page. Where the data lives depends on `assets/js/config.js`:
 
-| Mode | Where data lives | Use it for |
+| `API_URL` in config.js | Where data lives | Use it for |
 |---|---|---|
-| `demo` (default) | The browser’s local storage, seeded from `data/demo/` | Trying it out. Anyone can open it; nothing is shared. |
-| `live` | A Google Sheet in your school Google Workspace, through a Google Apps Script web app | Real use. Staff sign in with the username and password the HOD gives them (or, optionally, their school Google account). |
+| empty (as shipped) | This browser only (local storage), seeded from the anonymised sample data in `data/demo/` | Setting up and testing. Nothing is shared between computers. |
+| your Apps Script URL | A Google Sheet in your school Google Workspace, through a Google Apps Script web app | Real use. Staff sign in with the username and password the HOD gives them (or, optionally, their school Google account). |
 
-The demo data is anonymised (Teacher A–L). Your real timetable, inventory, staff names and library are **not** in this repository. They are in the separate `school-data` folder, which you load through **Admin → Import & export** once the live version is running. Do not commit that folder to a public repository.
+The sample data is anonymised (Teacher A–L). Your real timetable, inventory, staff names and library are **not** in this repository. They are in the separate `school-data` folder, which you load through **Import & export** once the site is connected to the Google Sheet. Do not commit that folder to a public repository.
 
 ---
 
-## 1. Put the site on GitHub Pages (demo mode)
+## 1. Put the site on GitHub Pages
 
 1. Create a new repository on GitHub (it can be public; there is no private data in it).
 2. Upload **the contents** of this folder (so `index.html` is at the top level of the repository): **Add file → Upload files**, drag everything in, commit.
 3. Go to **Settings → Pages**. Under *Build and deployment* choose **Deploy from a branch**, branch `main`, folder `/ (root)`, and save.
 4. After a minute the site is at `https://<your-user>.github.io/<repo-name>/`.
 
-You can now sign in as the demo teacher, technician or HOD. **Reset demo data** in the yellow bar starts again.
-
-**Test sign-ins (demo mode).** These work with the username and password form, so you can try the real sign-in flow:
+The site opens on the sign-in page. Until you connect the Google Sheet (section 2), it keeps its data in your browser only, and these **test sign-ins** work:
 
 | Role | Username | Password |
 |---|---|---|
-| Teacher (“Teacher C” on the timetable) | `test.teacher` | `Teacher-Test-2026` |
+| Teacher (“Teacher C” on the sample timetable) | `test.teacher` | `Teacher-Test-2026` |
 | Lab technician | `test.labtech` | `LabTech-Test-2026` |
 | Head of department | `test.hod` | `Hod-Test-2026` |
 
-They exist only in demo mode, in your own browser. For the live site, see *Test accounts* in 2.6.
+They exist only in that browser-only setup; they do not work once the site is connected. For the live site, see *Test accounts* in 2.6.
 
 ## 2. Connect it to Google (live mode)
 
@@ -82,13 +80,12 @@ When you change `Code.gs` later, use **Deploy → Manage deployments → edit (p
 
 > **Updating from an earlier version:** recent updates added columns (`passwordHash`, `salt`, `mustChange` on Users; `query`, `reply`, `hodApproved` on Requests; `orderApproved` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
 
-### 2.5 Switch the site to live
+### 2.5 Connect the site to the Google Sheet
 
 Edit `assets/js/config.js` on GitHub:
 
 ```js
 export const CONFIG = {
-  MODE: 'live',
   API_URL: 'https://script.google.com/macros/s/…/exec',
   GOOGLE_CLIENT_ID: '…apps.googleusercontent.com',   // or '' for usernames and passwords only
   SCHOOL_DOMAIN: 'yourschool.pt'
@@ -144,14 +141,14 @@ In Apps Script run **`installBackup`** once. Every night a copy of the whole She
 ```
 index.html                 the page
 assets/css/app.css         styles (three colour schemes + print)
-assets/js/config.js        demo / live switch
+assets/js/config.js        Apps Script URL (empty = data kept in this browser)
 assets/js/app.js           sign-in, header, routing
-assets/js/store.js         talks to Apps Script (live) or local storage (demo)
+assets/js/store.js         talks to Apps Script, or to local storage when not connected
 assets/js/logic.js         deadlines, lab status, clashes, CSV
 assets/js/ui.js            dialogs, hazcard viewer, toasts
 assets/js/views/*.js       one file per screen
 assets/icons/              item icons (see assets/icons/LICENSES.md)
-data/demo/*.json           anonymised demo data
+data/demo/*.json           anonymised sample data used before the site is connected
 apps-script/               the Google back end (Code.gs + manifest)
 ```
 
