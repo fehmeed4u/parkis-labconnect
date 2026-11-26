@@ -73,7 +73,7 @@ export async function render(el, _rest, params) {
               <td class="right" style="white-space:nowrap">${canEdit ? `<button class="qb" data-adj="-1" data-id="${esc(i.id)}" data-room="${esc(r)}" aria-label="Remove one from ${esc(roomName(db, r))}">−</button> <button class="qb" data-adj="1" data-id="${esc(i.id)}" data-room="${esc(r)}" aria-label="Add one to ${esc(roomName(db, r))}">+</button>` : ''}</td></tr>`; }).join('') || '<tr><td class="muted">Not in this room</td></tr>'}</tbody></table></article>`; }).join('') || '<p class="empty">Nothing matches.</p>'}
         ${items.length > st.limit ? `<div class="row between wrap"><span class="muted small">Showing ${shown.length} of ${items.length}.</span><button class="btn" id="more">Show more</button></div>` : ''}
       </section>
-      <aside class="card inv-edit sticky" id="edit">${sel ? (canEdit ? editPanel(sel) : viewPanel(sel)) : `<p class="muted small">${canEdit ? 'Click an item or one of its rooms to edit it here.' : 'Click an item to see where it’s kept.'}</p>`}</aside>
+      <aside class="card inv-edit sticky${sel ? ' open' : ''}" id="edit" aria-label="Item details">${sel ? (canEdit ? editPanel(sel) : viewPanel(sel)) : `<p class="muted small">${canEdit ? 'Click an item or one of its rooms to edit it here.' : 'Click an item to see where it’s kept.'}</p>`}</aside>
     </div>
   </div>`;
 
@@ -92,8 +92,7 @@ export async function render(el, _rest, params) {
     if (!v) return; try { await call('adjustStock', { itemId: b.dataset.id, room: b.dataset.room, change: Number(b.dataset.adj) * Math.abs(Number(v.n) || 1), reason: v.reason }); toast('Saved'); await reload(); } catch (e) { toast(e.message, 'bad'); }
   });
   el.querySelectorAll('[data-item]').forEach(b => b.onclick = () => { const i = db.inventory.find(x => x.id === b.dataset.item); st.sel = i.id;
-    st.selRoom = b.dataset.r || (st.room && i.rooms[st.room] !== undefined ? st.room : Object.keys(i.rooms)[0] || ''); rr();
-    if (innerWidth < 1100) $('#edit')?.scrollIntoView({ behavior: 'smooth' }); });
+    st.selRoom = b.dataset.r || (st.room && i.rooms[st.room] !== undefined ? st.room : Object.keys(i.rooms)[0] || ''); rr(); });
   const add = $('#add'); if (add) add.onclick = () => itemModal({ list: st.list, rooms: {}, storage: {}, hazcards: [] }, true);
   const log = $('#log'); if (log) log.onclick = () => modal(`<div class="row between"><h2 class="h2">Recent changes</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
     <div class="scroll" style="max-height:60vh"><table class="tbl"><thead><tr><th>When</th><th>Who</th><th>Item</th><th>Room</th><th>Change</th><th>Reason</th></tr></thead><tbody>${db.log.slice().reverse().map(l => `<tr><td class="small">${esc(new Date(l.at).toLocaleString('en-GB'))}</td><td>${esc(l.by)}</td><td>${esc(l.item)}</td><td>${esc(roomName(db, l.room))}</td><td>${l.change > 0 ? '+' : ''}${esc(l.change)}</td><td>${esc(l.reason)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No changes yet.</td></tr>'}</tbody></table></div>`, { wide: true });

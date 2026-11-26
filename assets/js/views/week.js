@@ -1,7 +1,7 @@
 import { db, session, call } from '../store.js';
 import { esc, iso, addDays, monday, min, fmtMin, nice, DAYS, hazcardsFor, roomName, labRooms, clashes, gradeOf, prepOf } from '../logic.js';
 import { $, modal, closeModal, toast, promptBox } from '../ui.js';
-import { go, reload, themePicker, wireThemes } from '../app.js';
+import { go, reload, themePicker, wireThemes, openTab } from '../app.js';
 
 const st = { offset: 0, layout: pref('layout', 'week'), across: pref('across', 'days'), colDay: -1, labDay: 0 };
 function pref(k, d) { try { return localStorage.getItem('sp_week_' + k) || d; } catch (e) { return d; } }
@@ -39,8 +39,8 @@ export async function render(el) {
       g += `<div class="wgrid" style="grid-template-columns:60px repeat(${tot},minmax(88px,1fr));grid-template-rows:40px repeat(${slots.length},44px);min-width:${60 + tot * 88}px">`;
       g += `<div class="gh" style="grid-column:1;grid-row:1"></div>`;
       DAYS.forEach((_, d) => g += `<div class="gh" style="grid-column:${2 + off[d]} / span ${lanes[d]};grid-row:1">${head(d)}</div>`);
-      slots.forEach((t, r) => { g += `<div class="gt${t % 60 ? '' : ' hr'}" style="grid-column:1;grid-row:${2 + r}">${t % 60 && r ? '' : fmtMin(t)}</div>`;
-        DAYS.forEach((_, d) => g += `<div class="gc${t % 60 ? '' : ' hr'}" style="grid-column:${2 + off[d]} / span ${lanes[d]};grid-row:${2 + r}"></div>`); });
+      slots.forEach((t, r) => { g += `<div class="gt${(t + 30) % 60 ? '' : ' hr'}" style="grid-column:1;grid-row:${2 + r}">${t % 60 && r ? '' : fmtMin(t)}</div>`;
+        DAYS.forEach((_, d) => g += `<div class="gc${(t + 30) % 60 ? '' : ' hr'}" style="grid-column:${2 + off[d]} / span ${lanes[d]};grid-row:${2 + r}"></div>`); });
       jobs.forEach(j => g += card(j, `grid-column:${2 + off[j.day] + laneOf[j.id]};grid-row:${2 + slotOf(j.start)} / span ${span(j)}`));
     } else {
       g += `<div class="wgrid" style="grid-template-columns:72px repeat(${slots.length},minmax(64px,1fr));grid-template-rows:36px repeat(${tot},78px);min-width:${72 + slots.length * 64}px">`;
@@ -100,7 +100,7 @@ export function overview(id) {
   return `<div class="band d${p}"></div><div class="row between"><h2 class="h2">${esc(r.title)}</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
   <dl class="dl"><dt>When</dt><dd>${esc(nice(r.date))} · ${esc(r.start)}–${esc(r.end)}</dd><dt>Where</dt><dd>${esc(roomName(db, r.room))}${r.room !== r.timetabledRoom && r.timetabledRoom ? ` <span class="muted small">(moved from ${esc(r.timetabledRoom)})</span>` : ''}</dd>
   <dt>Grade</dt><dd>Grade ${esc(gradeOf(r.class))}</dd><dt>Subject</dt><dd>${esc(r.subject)}</dd><dt>Class</dt><dd>${esc(r.class)} · ${esc(r.teacher)}</dd><dt>Sets</dt><dd>${esc(r.sets)}</dd>
-  <dt>Kit</dt><dd>${r.kit.slice(0, 4).map(k => esc(k.name)).join(', ')}${r.kit.length > 4 ? ` +${r.kit.length - 4} more` : ''}</dd></dl>
+  <dt>Kit</dt><dd>${r.kit.length ? `<ul class="kitlist">${r.kit.map(k => `<li>${esc(k.name)}${k.qty ? ` <span class="muted">× ${esc(k.qty)}</span>` : ''}</li>`).join('')}</ul>` : '<span class="muted">Nothing listed</span>'}</dd></dl>
   ${hz.length ? `<div class="chips"><span class="kicker danger">Hazcards</span>${hz.map(h => `<span class="chip hz">${esc(h.code)}</span>`).join('')}</div>` : ''}
   ${cl.length ? `<div class="note bad">${cl.map(c => `${esc(c.item.name)}: ${c.have} in stock, ${c.need} needed${c.used ? ` + ${c.used} booked by others at this time` : ''}`).join('<br>')}</div>` : ''}
   ${r.status === 'submitted' ? `<div class="note ${r.late ? 'bad' : ''}"><strong>${r.late ? 'Late request' : 'New request'}.</strong> Sent ${esc(new Date(r.createdAt || r.updatedAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}${r.offer ? ` · offered: ${esc(r.offer)}` : ''}
@@ -109,12 +109,13 @@ export function overview(id) {
   ${r.reply ? `<div class="note ok"><strong>Teacher replied:</strong> ${esc(r.reply)}</div>` : ''}
   ${r.notes ? `<p class="small"><strong>Teacher’s note:</strong> ${esc(r.notes)}</p>` : ''}
   <div class="row gap"><button class="swatch d0${p === 0 ? ' on' : ''}" data-prep="0" aria-label="Mark not started" aria-pressed="${p === 0}"></button><button class="swatch d1${p === 1 ? ' on' : ''}" data-prep="1" aria-label="Mark in progress" aria-pressed="${p === 1}"></button><button class="swatch d2${p === 2 ? ' on' : ''}" data-prep="2" aria-label="Mark prepared" aria-pressed="${p === 2}"></button>
-  <a class="btn pri" style="margin-left:auto" href="#/requests/${esc(r.id)}">Prep sheet</a></div>`;
+  <a class="btn pri" style="margin-left:auto" href="#/prep/${esc(r.id)}" target="_blank" data-newtab title="Opens in a new tab">Prep sheet ↗</a></div>`;
 }
 
 export function wire(root, el, id = st.sel) {
   const r = db.requests.find(x => x.id === id); if (!r) return;
   const done = async (patch, msg) => { try { await call('updateRequest', { id: r.id, patch }); toast(msg); closeModal(); await reload(); } catch (e) { toast(e.message, 'bad'); } };
+  root.querySelectorAll('[data-newtab]').forEach(a => a.onclick = e => { e.preventDefault(); openTab(a.getAttribute('href')); });
   root.querySelectorAll('[data-prep]').forEach(b => b.onclick = () => { const k = Number(b.dataset.prep);
     done({ prep: k, status: k === 2 ? 'ready' : k === 1 ? 'in_progress' : (r.status === 'submitted' ? 'submitted' : 'accepted') }, ['Not started', 'In progress', 'Prepared'][k]); });
   root.querySelectorAll('[data-act]').forEach(b => b.onclick = async () => {

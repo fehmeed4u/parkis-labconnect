@@ -172,9 +172,12 @@ export async function render() {
   try { await ROUTES[view].render(el, rest, new URLSearchParams(location.hash.split('?')[1] || '')); }
   catch (e) { console.error(e); el.innerHTML = `<div class="empty">Something went wrong: ${esc(e.message)}</div>`; }
 }
+/** Open a page of the app in a new tab, still signed in. window.open (unlike a plain target=_blank link) keeps the
+ *  opener, so the browser copies this tab's sessionStorage — where the sign-in lives — into the new tab. */
+export function openTab(hash) { const w = window.open(location.pathname + location.search + hash, '_blank'); if (!w) go(hash); }
 export async function reload() { await refresh(); await render(); }
 
-window.addEventListener('hashchange', () => render());
+window.addEventListener('hashchange', () => { closeModal(); render(); }); // a pop-up never outlives the page it was opened on
 (async () => {
   try { const s = JSON.parse(sessionStorage.getItem('sp_session') || 'null'); if (s && s.me && (s.token || s.idToken)) Object.assign(session, s); } catch (e) {}
   if (session.me) await boot(); else render();

@@ -63,8 +63,8 @@ function pickLesson(el, q, teacher, editing) {
     grid += `<div class="wgrid tt" style="grid-template-columns:60px repeat(5,minmax(150px,1fr));grid-template-rows:40px repeat(${slots.length},44px);min-width:${60 + 5 * 150}px">`;
     grid += `<div class="gh" style="grid-column:1;grid-row:1"></div>`;
     dates.forEach((d, i) => { const hol = !isSchoolDay(parse(d), db.settings.holidays); grid += `<div class="gh${d === today ? ' today' : ''}" style="grid-column:${2 + i};grid-row:1">${DAYS[i]} ${parse(d).getDate()} ${parse(d).toLocaleDateString('en-GB', { month: 'short' })}${hol ? ' · holiday' : ''}</div>`; });
-    slots.forEach((t, r) => { grid += `<div class="gt${t % 60 ? '' : ' hr'}" style="grid-column:1;grid-row:${2 + r}">${t % 60 && r ? '' : fmtMin(t)}</div>`;
-      dates.forEach((d, i) => grid += `<div class="gc${t % 60 ? '' : ' hr'}${isSchoolDay(parse(d), db.settings.holidays) ? '' : ' off'}" style="grid-column:${2 + i};grid-row:${2 + r}"></div>`); });
+    slots.forEach((t, r) => { grid += `<div class="gt${(t + 30) % 60 ? '' : ' hr'}" style="grid-column:1;grid-row:${2 + r}">${t % 60 && r ? '' : fmtMin(t)}</div>`;
+      dates.forEach((d, i) => grid += `<div class="gc${(t + 30) % 60 ? '' : ' hr'}${isSchoolDay(parse(d), db.settings.holidays) ? '' : ' off'}" style="grid-column:${2 + i};grid-row:${2 + r}"></div>`); });
     dates.forEach((d, i) => {
       if (!isSchoolDay(parse(d), db.settings.holidays)) return;
       mine.filter(t => t.day === DAYS[i]).forEach(t => {

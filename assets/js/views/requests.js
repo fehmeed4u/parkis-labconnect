@@ -6,6 +6,8 @@ import { sheet, wireSheet } from './prep.js';
 import { mineOf } from './home.js';
 
 const st = { tab: 'open', q: '', mine: 'upcoming', limit: 25 };
+/** Wide enough for the queue and the prep sheet side by side (sidebar + 340px queue + 560px sheet). */
+const SIDE_BY_SIDE = '(min-width: 1220px)';
 
 export async function render(el, [selId]) {
   if (session.me.role === 'teacher') return mine(el);
@@ -19,7 +21,10 @@ export async function render(el, [selId]) {
   };
   const list = db.requests.filter(tabs[st.tab][1]).filter(r => !st.q || (r.title + r.teacher + r.class + r.room).toLowerCase().includes(st.q.toLowerCase()))
     .sort((a, b) => st.tab === 'past' ? (b.date + b.start).localeCompare(a.date + a.start) : (a.date + a.start).localeCompare(b.date + b.start));
-  const sel = db.requests.find(r => r.id === selId) || list.find(r => r.status === 'submitted') || list[0];
+  // On narrower screens (iPad) the prep sheet would land below the whole queue, so there each request opens its own page.
+  const sideBySide = matchMedia(SIDE_BY_SIDE).matches;
+  const sel = sideBySide ? db.requests.find(r => r.id === selId) || list.find(r => r.status === 'submitted') || list[0] : null;
+  const current = selId;
 
   // group by day: today, tomorrow, the next school days, then later
   const tomorrow = iso(addDays(new Date(), 1)); const soon = iso(addDays(new Date(), 7));
@@ -48,17 +53,17 @@ export async function render(el, [selId]) {
     </div>
     <div class="cols">
       <section class="queue" aria-label="Queue">
-        ${groups.map(g => `<div><h2>${esc(g.label)}</h2>${g.items.map(r => `<button class="qcard${sel && r.id === sel.id ? ' on' : ''}" data-open="${esc(r.id)}" aria-pressed="${!!sel && r.id === sel.id}">
+        ${groups.map(g => `<div><h2>${esc(g.label)}</h2>${g.items.map(r => (sideBySide ? `<button class="qcard${sel && r.id === sel.id ? ' on' : ''}" data-open="${esc(r.id)}" aria-pressed="${!!sel && r.id === sel.id}">` : `<a class="qcard${r.id === current ? ' on' : ''}" href="#/prep/${esc(r.id)}">`) + `
           <span class="row between gap"><span class="t">${esc(r.title)}</span>${chip(r)}</span>
           <span class="m">${esc(r.class)} · ${esc(st.tab === 'past' || label(r.date) === 'LATER' ? nice(r.date) + ' · ' : '')}${esc(r.start)}–${esc(r.end)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} groups · ${esc(r.teacher)}</span>
-          ${flag(r) ? `<span class="f">${esc(flag(r))}</span>` : ''}</button>`).join('')}</div>`).join('') || '<p class="muted">Nothing here.</p>'}
+          ${flag(r) ? `<span class="f">${esc(flag(r))}</span>` : ''}${sideBySide ? '</button>' : '</a>'}`).join('')}</div>`).join('') || '<p class="muted">Nothing here.</p>'}
         ${list.length > st.limit ? `<div class="row between wrap"><span class="muted small">Showing ${st.limit} of ${list.length}.</span><button class="btn small" id="qmore">Show more</button></div>` : ''}
       </section>
       ${sel ? `<section class="card sheet" aria-label="Prep sheet" id="sheet">${sheet(sel)}</section>` : ''}
     </div></div>`;
   el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { st.tab = b.dataset.tab; st.limit = 25; go('#/requests'); render(el, []); });
   const q = el.querySelector('#rq'); q.oninput = () => { st.q = q.value; const p = q.selectionStart; render(el, [selId]).then(() => { const i = el.querySelector('#rq'); i.focus(); i.setSelectionRange(p, p); }); };
-  el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { history.replaceState(null, '', '#/requests/' + b.dataset.open); render(el, [b.dataset.open]); if (innerWidth < 900) document.getElementById('sheet')?.scrollIntoView({ behavior: 'smooth' }); });
+  el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { history.replaceState(null, '', '#/requests/' + b.dataset.open); render(el, [b.dataset.open]); });
   const qm = el.querySelector('#qmore'); if (qm) qm.onclick = () => { st.limit += 25; render(el, [selId]); };
   if (sel) wireSheet(el.querySelector('#sheet'), sel, () => render(el, [sel.id]));
 }

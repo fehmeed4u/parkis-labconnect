@@ -111,6 +111,7 @@ main#view:focus { outline: none; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; }
 .card.pad-s { padding: 16px; }
 .card.flush { padding: 0; overflow: hidden; }
+.card.flush.scroll { overflow: auto; } /* wide grids (week board, timetable) scroll sideways inside their card */
 .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .card-head .h2 + .muted { margin-top: 4px; }
 .scroll { overflow: auto; }
@@ -200,6 +201,7 @@ span.chip { cursor: default; }
 .tbl.boxed th { background: var(--head); }
 .dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0; }
 .dl dt { color: var(--muted); font-size: 13px; } .dl dd { margin: 0; }
+.kitlist { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; }
 
 /* ---------- login ---------- */
 .login { max-width: 760px; margin: 10vh auto; padding: 20px; text-align: center; display: flex; flex-direction: column; gap: 16px; align-items: center; }
@@ -260,8 +262,9 @@ button.stat { cursor: pointer; } button.stat:hover { border-color: var(--line-2)
 
 /* ---------- technician queue + prep sheet ---------- */
 .queue { flex: 1 1 340px; max-width: 420px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.queue:only-child { max-width: none; } /* no prep sheet beside it (narrow screens) */
 .queue h2 { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .03em; margin: 0 0 8px; }
-.qcard { display: flex; flex-direction: column; gap: 6px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; cursor: pointer; width: 100%; color: var(--ink); }
+.qcard { display: flex; flex-direction: column; gap: 6px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; cursor: pointer; width: 100%; color: var(--ink); text-decoration: none; }
 .qcard + .qcard { margin-top: 8px; }
 .qcard:hover { border-color: var(--line-2); }
 .qcard.on { border: 2px solid var(--pri); padding: 13px 15px; }
@@ -304,6 +307,7 @@ button.stat { cursor: pointer; } button.stat:hover { border-color: var(--line-2)
 .gt { font-size: 11px; font-weight: 600; color: var(--muted); padding: 4px 6px; border-bottom: 1px solid var(--surface-2); }
 .gh.gt { font-weight: 600; padding: 4px 6px; }
 .gc { border-left: 1px solid var(--line); border-bottom: 1px solid var(--surface-2); }
+/* .hr = the row that ends on a full hour, so the darker line falls on 9:00, 10:00… */
 .gc.hr, .gt.hr { border-bottom-color: var(--line); }
 .gc.vr { border-left-color: var(--line); }
 .gc.vs { border-left-color: var(--surface-2); }
@@ -333,6 +337,11 @@ button.stat { cursor: pointer; } button.stat:hover { border-color: var(--line-2)
 .inv-filter { flex: 0 1 240px; min-width: 200px; padding: 16px; }
 .inv-list { flex: 999 1 520px; min-width: 0; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .inv-edit { flex: 0 1 304px; min-width: 260px; padding: 16px; }
+/* Where the item panel can't sit beside the list (tablets, phones) it slides in over the page instead of landing at the bottom. */
+@media (max-width: 1399px) {
+  .inv-edit { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100%); min-width: 0; border-radius: 0; z-index: 40; overflow: auto; box-shadow: -12px 0 32px rgba(16, 24, 40, .18); }
+  .inv-edit:not(.open) { display: none; }
+}
 .inv-filter .kicker, .inv-edit .kicker { font-size: 12px; margin: 16px 0 6px; }
 .inv-filter .kicker:first-of-type { margin-top: 0; }
 .roomlist { display: flex; flex-direction: column; gap: 2px; }
