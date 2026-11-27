@@ -271,9 +271,17 @@ def kit_from_section(lines):
         if len(cut) > 1: break
     return [] if junk >= 4 and junk >= len(out) / 2 else out
 
+def split_bullets(kit):
+    """PDFs in two columns put two items on one line: 'glacial ethanoic acid • sodium metal'."""
+    out = []
+    for k in kit:
+        parts = [x.strip() for x in re.split(r'\s+[•·▪●]\s+', k['name']) if x.strip()]
+        out += [k] if len(parts) == 1 else [item(x) for x in parts]
+    return out
+
 def dedupe_kit(kit):
     seen, out = set(), []
-    for k in kit:
+    for k in split_bullets(kit):
         key = re.sub(r'[^a-z0-9]', '', k['name'].lower())
         if key and key not in seen and ok_item(k['name']): seen.add(key); out.append(k)
     return out[:45]
