@@ -26,14 +26,16 @@ var TABLES = {
   Inventory:    ['id', 'list', 'category', 'name', 'size', 'rooms', 'storage', 'min', 'orderRequired', 'supplier', 'ref', 'hazcards', 'icon', 'photo', 'shelfLife', 'storageGroup', 'notes', 'orderApproved', 'sds', 'sdsNote', 'altNames'],
   InventoryLog: ['at', 'by', 'itemId', 'item', 'room', 'change', 'reason'],
   Hazcards:     ['code', 'title', 'url'],
-  Library:      ['id', 'title', 'grade', 'subject', 'course', 'topic', 'kit', 'prepMinutes', 'method'],
-  Requests:     ['id', 'createdAt', 'updatedAt', 'teacherEmail', 'teacher', 'class', 'grade', 'subject', 'date', 'start', 'end', 'room', 'timetabledRoom', 'practicalId', 'title', 'sets', 'kit', 'notes', 'status', 'prep', 'late', 'lateChoice', 'swapWith', 'offer', 'techNotes', 'rating', 'feedback', 'history', 'query', 'reply', 'hodApproved', 'flag', 'postponedFrom']
+  Library:      ['id', 'title', 'grade', 'subject', 'course', 'topic', 'kit', 'prepMinutes', 'method', 'risks', 'prepNotes'],
+  Recipes:      ['number', 'title', 'names', 'hazcards', 'solutes', 'text'],        // from the school's CLEAPSS Recipe Sheets (import file)
+  RiskCards:    ['code', 'title', 'signal', 'hazards', 'controls', 'emergency', 'disposal'], // from the school's CLEAPSS Hazcards (import file)
+  Requests:     ['id', 'createdAt', 'updatedAt', 'teacherEmail', 'teacher', 'class', 'grade', 'subject', 'date', 'start', 'end', 'room', 'timetabledRoom', 'practicalId', 'title', 'sets', 'kit', 'notes', 'status', 'prep', 'late', 'lateChoice', 'swapWith', 'offer', 'techNotes', 'rating', 'feedback', 'history', 'query', 'reply', 'hodApproved', 'flag', 'postponedFrom', 'method', 'risks', 'activities', 'prepNotes']
 };
 var AUTH_COLS = ['passwordHash', 'salt', 'mustChange'];
 var SESSION_HOURS = 12, HASH_ROUNDS = 2000, MAX_FAILS = 5;
-var JSON_COLS = { rooms: 1, storage: 1, hazcards: 1, kit: 1, history: 1, value: 1 };
+var JSON_COLS = { rooms: 1, storage: 1, hazcards: 1, kit: 1, history: 1, value: 1, risks: 1, activities: 1, names: 1, solutes: 1, hazards: 1, controls: 1, emergency: 1 };
 var WRITE_ROLES = {
-  Settings: ['admin'], Users: ['admin'], Labs: ['admin'], Timetable: ['admin'], Hazcards: ['admin'],
+  Settings: ['admin'], Users: ['admin'], Labs: ['admin'], Timetable: ['admin'], Hazcards: ['admin'], Recipes: ['admin', 'technician'], RiskCards: ['admin', 'technician'],
   Inventory: ['admin', 'technician'], Library: ['admin', 'technician', 'teacher']
 };
 
@@ -250,7 +252,7 @@ function bootstrap_(me) {
     settings: settings,
     users: me.role === 'admin' ? read_('Users').map(publicUser_) : read_('Users').map(function (u) { return { email: u.email, name: u.name, role: u.role }; }),
     labs: read_('Labs'), timetable: read_('Timetable'), inventory: read_('Inventory'),
-    hazcards: read_('Hazcards'), library: read_('Library'), requests: read_('Requests'),
+    hazcards: read_('Hazcards'), library: read_('Library'), requests: read_('Requests'), recipes: read_('Recipes'), riskcards: read_('RiskCards'),
     log: me.role === 'teacher' ? [] : read_('InventoryLog').slice(-300)
   };
 }

@@ -9,6 +9,8 @@ A small website for a science department:
 - **Booking rule:** requests are due a set number of working days ahead (default 3). On-time requests are booked automatically; late requests wait (blue) for a technician to approve, change the day or time, or reject them. The teacher chooses to talk to the technicians first or to send it anyway.
 - **Changes the technicians must see:** when a teacher changes, postpones or cancels a request, it is flagged on the week board, the queue and the prep sheet until a technician clicks *Seen*. A cancelled practical stays on the board, struck through, until then — with a warning if another teacher has the same practical that day and may be sharing the trolley.
 - **Hazcards and safety data sheets:** the CLEAPSS hazcards for every chemical in an order pop up for the teacher when ordering and for the technician when preparing. Each chemical in the inventory, the order form and the prep sheet links to its safety data sheet (SDS). A **Safety report** lists every chemical that still has no hazcard or SDS.
+- **Solutions:** for each chemical the teacher gives the concentration and the volume per group. The prep sheet lists the chemicals as a table and works out, from the school’s CLEAPSS Recipe Sheets, how much to weigh or measure for the volume to make up (the next flask size above what is needed, plus about 10 %). The full recipe and any instructions the teacher wrote (e.g. from a past paper) are under **Show / Hide how to make them**.
+- **Risk assessment:** an order can’t be sent until the teacher has ticked *I have checked this risk assessment*. The table (hazard · how to reduce the risk · if it happens) fills itself in: glassware always, one row for each hazcard in the kit (from the school’s CLEAPSS Hazcards) and one for each activity found in the title, method and kit (titration, heating, dissection, microbiology, electricity …). Teachers can change, remove or add rows. Before sending they see the whole practical — equipment, chemicals, method, hazcards and risk assessment — on one page. The risk assessment is saved with the request (shown on the prep sheet) and in the practical library.
 - **Records:** every request is kept with its date and time, so the practical library grows by itself. Every table can be exported and imported as JSON or CSV (CSV opens in Excel).
 
 It is a plain static site (HTML, CSS, JavaScript; no build step). The landing page is the sign-in page. Where the data lives depends on `assets/js/config.js`:
@@ -80,7 +82,7 @@ In Apps Script, **Project Settings → Script properties → Add**:
 
 When you change `Code.gs` later, use **Deploy → Manage deployments → edit (pencil) → Version: New version** so the URL stays the same.
 
-> **Updating from an earlier version:** recent updates added columns (`passwordHash`, `salt`, `mustChange` on Users; `query`, `reply`, `hodApproved`, `flag`, `postponedFrom` on Requests; `orderApproved`, `sds`, `sdsNote`, `altNames` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
+> **Updating from an earlier version:** recent updates added columns (`passwordHash`, `salt`, `mustChange` on Users; `query`, `reply`, `hodApproved`, `flag`, `postponedFrom`, `method`, `risks`, `activities`, `prepNotes` on Requests; `risks`, `prepNotes` on Library; new tabs Recipes and RiskCards; `orderApproved`, `sds`, `sdsNote`, `altNames` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
 
 ### 2.5 Connect the site to the Google Sheet
 
@@ -110,6 +112,8 @@ In the site, go to **Admin → Import & export → Import**, choose a table, cho
 | Inventory | `inventory.json` |
 | Hazcards | `hazcards.json` |
 | Library | `library.json` |
+| Recipes | `recipes.json` (from your CLEAPSS Recipe Sheets) |
+| RiskCards | `riskcards.json` (hazards, control measures and emergency action from your CLEAPSS Hazcards) |
 | Users | `users.json` |
 
 Then open **People & roles** and click **+ Add person** for each member of staff: their name (exactly as on the timetable, so teachers see their own lessons), a username, and their role (*Teacher*, *Lab technician* or *Head of department*). The app makes a **temporary password** and shows it once — copy it and give it to the person with their username. The first time they sign in they must choose their own password (at least 8 characters).
@@ -120,6 +124,8 @@ Then open **People & roles** and click **+ Add person** for each member of staff
 - Five wrong passwords in a row lock that username for 10 minutes. A sign-in lasts 12 hours (or until the browser tab is closed).
 - **Test accounts:** in Apps Script run **`makeTestAccounts`**. The execution log lists `test.teacher`, `test.labtech` and `test.hod` with a random password each (no change needed at first sign-in), so you can try every role. Set the script property `TEST_TEACHER_NAME` to a teacher’s name from the timetable first if you want the test teacher to see that teacher’s lessons. Run **`removeTestAccounts`** when you are done. (The live passwords are random on purpose — fixed ones would be public in this repository.)
 - If you also set up Google sign-in, use the person’s school email as their username and they can use either way to sign in.
+
+**Recipes and risk cards.** The CLEAPSS Recipe Sheets and Hazcards are copyright CLEAPSS and for members only, so they are not in this repository either. Their contents go into the Sheet as two tables, **Recipes** and **RiskCards**, imported like the other files above. Until you import them, the app uses a few sample recipes and risk cards written for testing (`data/demo/recipes.json`, `data/demo/riskcards.json`). Technicians and the HOD can correct any row in the Sheet.
 
 **Hazcards.** CLEAPSS hazcards are copyright CLEAPSS and for members only, so they are not in this repository. To make them pop up:
 

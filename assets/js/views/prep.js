@@ -3,6 +3,8 @@ import { esc, nice, niceLong, hazcardsFor, roomName, clashes, unavailable, grade
 import { hazcardModal, toast, promptBox, statusChip, iconImg } from '../ui.js';
 import { reload } from '../app.js';
 import { flagNote } from './week.js';
+import { solutionPlan, riskTable } from '../chem.js';
+let showHow = (() => { try { return localStorage.getItem('sp_prep_how') !== 'hide'; } catch (e) { return true; } })();
 
 const seen = new Set(); let showWhere = true; const picked = {};
 const whereOf = it => Object.entries(it.rooms || {}).filter(([, q]) => Number(q) > 0)
@@ -21,7 +23,8 @@ export function sheet(r) {
   const hz = hazcardsFor(db, r.kit); const cl = clashes(db, r); const isStaff = session.me.role !== 'teacher';
   const p = prepOf(r); picked[r.id] = picked[r.id] || {};
   const items = r.kit.map((k, i) => ({ k, i, it: db.inventory.find(x => x.id === k.itemId) || {} }));
-  const equip = items.filter(x => x.it.list !== 'Chemicals'), chems = items.filter(x => x.it.list === 'Chemicals');
+  const isChem = x => x.it.list === 'Chemicals' || (!x.it.id && !!x.k.conc);
+  const equip = items.filter(x => !isChem(x)), chems = items.filter(isChem);
   const free = x => { const c = cl.find(c => c.item.id === x.k.itemId); return c ? Math.max(0, c.have - c.used) : null; };
   return `
     <div class="row between wrap" style="align-items:flex-start">
@@ -50,9 +53,9 @@ export function sheet(r) {
         ${showWhere ? `<td class="where">${whereOf(x.it) || '<span class="muted">not in inventory</span>'}</td>` : ''}</tr>`; }).join('') || `<tr><td colspan="4" class="muted">No equipment listed.</td></tr>`}
       </tbody></table></div>
     </div>
-    ${chems.length ? `<div><h3 class="h3">Chemicals and solutions to make up</h3><div class="solutions">${chems.map(x => `<div class="sol"><b>${esc(x.k.name)}${x.it.size ? ' · ' + esc(x.it.size) : ''} · ${esc(x.k.qty)} for ${esc(r.sets)} groups</b>
-      ${whereOf(x.it) ? 'Stock: ' + whereOf(x.it) + '<br>' : ''}${x.it.hazcards?.length ? 'Hazcard ' + esc(x.it.hazcards.join(', ')) : ''}${x.it.sds ? `${x.it.hazcards?.length ? ' · ' : ''}<a href="${esc(x.it.sds)}" target="_blank" rel="noopener">Safety data sheet ↗</a>` : ''}${x.it.storageGroup ? ' · storage group ' + esc(x.it.storageGroup) : ''}
-      <label class="check no-print" style="margin-top:8px;font-size:13px"><input type="checkbox" data-pick="${x.i}" ${picked[r.id][x.i] ? 'checked' : ''}> Made up</label></div>`).join('')}</div></div>` : ''}
+    ${chems.length ? chemSection(r, chems) : ''}
+    ${r.method ? `<div><h3 class="h3">Method</h3><p style="white-space:pre-wrap;margin:0">${esc(r.method)}</p></div>` : ''}
+    <details class="riskbox"${(r.risks || []).length ? '' : ' hidden'}><summary class="h3" style="cursor:pointer">Risk assessment (${(r.risks || []).length} rows)</summary>${riskTable(r.risks)}</details>
     ${isStaff ? `<div class="no-print"><label class="fld">Technician notes (breakages, returns)<textarea data-tn rows="2">${esc(r.techNotes || '')}</textarea></label><div style="margin-top:8px"><button class="btn small" data-save-tn>Save notes</button></div></div>
     <div class="sheet-foot no-print">
       <button class="btn" data-print>Print ${esc(r.sets)} tray cards</button>
@@ -63,11 +66,37 @@ export function sheet(r) {
     <section class="labels print-only">${Array.from({ length: Number(r.sets) || 0 }, (_, g) => `<div class="label"><strong>${esc(r.title)} · tray ${g + 1}</strong><span>${esc(r.class)} · ${esc(nice(r.date))} ${esc(r.start)} · ${esc(roomName(db, r.room))}</span><span>${r.kit.map(k => esc(k.name)).join(', ')}</span></div>`).join('')}</section>`;
 }
 
+/** Chemicals as a table (what goes on the trays), then the solutions to make up with amounts from the recipes. */
+function chemSection(r, chems) {
+  const plans = chems.map(x => ({ ...x, p: solutionPlan(db, x.k, r.sets) }));
+  const toMake = plans.filter(x => x.p.makeUp || x.p.recipe);
+  return `<div><h3 class="h3">Chemicals</h3><div class="scroll"><table class="tbl boxed"><thead><tr><th class="no-print" style="width:70px">Made up</th><th>Chemical</th><th>Concentration</th><th>Per group</th><th>In all</th><th>Make up</th><th>Where</th><th>Safety</th></tr></thead><tbody>
+    ${plans.map(x => `<tr><td class="no-print"><input type="checkbox" data-pick="${x.i}" ${picked[r.id][x.i] ? 'checked' : ''} aria-label="Made up ${esc(x.k.name)}"></td>
+      <td><span class="row gap">${iconImg(x.it, 24)}<span>${esc(x.k.name)}</span></span></td><td>${esc(x.k.conc || '—')}</td>
+      <td>${x.k.vol ? esc(x.k.vol) + ' cm³' : esc(x.k.qty)}</td><td>${x.p.need ? esc(x.p.need) + ' cm³' : '—'}</td><td class="strong">${x.p.makeUp ? esc(x.p.makeUp) + ' cm³' : '—'}</td>
+      <td class="where">${whereOf(x.it) || '<span class="muted">not in inventory</span>'}</td>
+      <td>${x.it.hazcards?.length ? 'Hazcard ' + esc(x.it.hazcards.join(', ')) : ''}${x.it.sds ? `${x.it.hazcards?.length ? '<br>' : ''}<a href="${esc(x.it.sds)}" target="_blank" rel="noopener">SDS ↗</a>` : ''}${x.it.storageGroup ? '<br><span class="muted small">group ' + esc(x.it.storageGroup) + '</span>' : ''}</td></tr>`).join('')}
+    </tbody></table></div></div>
+  ${toMake.length || r.prepNotes ? `<div><div class="row between wrap" style="margin-bottom:10px"><h3 class="h3" style="margin:0">Solutions to make up</h3>
+      <button type="button" class="btn small no-print" data-how aria-expanded="${showHow}">${showHow ? 'Hide' : 'Show'} how to make them</button></div>
+    <div class="solutions">${toMake.map(x => `<div class="sol"><b>${esc(x.k.name)}${x.k.conc ? ' · ' + esc(x.k.conc) : ''}${x.p.makeUp ? ' · make ' + esc(x.p.makeUp) + ' cm³' : ''}</b>
+      ${x.p.amount !== null ? `<div class="calc"><strong>${esc(x.p.amount)} ${esc(x.p.unit)}</strong> ${x.p.unit === 'g' ? 'to weigh' : 'to measure'}${x.p.recipe ? ` · <span class="muted">Recipe ${esc(x.p.recipe.number)}</span>` : ''}</div>`
+        : `<div class="muted small">${x.p.recipe ? `See Recipe ${esc(x.p.recipe.number)} · ${esc(x.p.recipe.title)}` : 'No recipe found'}${!x.k.conc ? ' — no concentration given' : ''}</div>`}</div>`).join('')}</div>
+    <div class="how" ${showHow ? '' : 'hidden'}>
+      ${r.prepNotes ? `<div class="note ok"><strong>The teacher’s instructions:</strong><div style="white-space:pre-wrap;margin-top:4px">${esc(r.prepNotes)}</div></div>` : ''}
+      ${toMake.map(x => (x.p.how || x.p.recipe) ? `<div class="howone"><h4 class="h4">${esc(x.k.name)}${x.k.conc ? ' · ' + esc(x.k.conc) : ''}</h4>
+        ${x.p.how ? `<p class="calc-how">${esc(x.p.how)}</p>` : ''}
+        ${x.p.recipe ? `<details><summary>Recipe ${esc(x.p.recipe.number)} · ${esc(x.p.recipe.title)}${(x.p.recipe.hazcards || []).length ? ' · Hazcard ' + esc(x.p.recipe.hazcards.join(', ')) : ''}</summary><pre class="recipe">${esc(x.p.recipe.text)}</pre></details>` : ''}</div>` : '').join('')}
+    </div></div>` : ''}`;
+}
+
 export function wireSheet(root, r, rerender) {
   const id = r.id; const hz = hazcardsFor(db, r.kit); const isStaff = session.me.role !== 'teacher';
   const uses = {}; r.kit.forEach(k => (db.inventory.find(i => i.id === k.itemId)?.hazcards || []).forEach(c => { uses[c] = uses[c] ? uses[c] + ', ' + k.name : k.name; }));
   if (hz.length && isStaff && !seen.has(id) && r.status !== 'done') { seen.add(id); hazcardModal(hz, `Read before preparing · ${hz.length} hazcard${hz.length > 1 ? 's' : ''} for this practical`, 'I’ve read these', uses); }
   root.querySelectorAll('[data-hz]').forEach(b => b.onclick = () => { const i = hz.findIndex(h => h.code === b.dataset.hz); hazcardModal(hz.slice(i).concat(hz.slice(0, i)), 'Hazcard', 'Close', uses); });
+  const hw = root.querySelector('[data-how]'); if (hw) hw.onclick = () => { showHow = !showHow; try { localStorage.setItem('sp_prep_how', showHow ? 'show' : 'hide'); } catch (e) {}
+    root.querySelector('.how').hidden = !showHow; hw.textContent = (showHow ? 'Hide' : 'Show') + ' how to make them'; hw.setAttribute('aria-expanded', showHow); };
   const w = root.querySelector('[data-where]'); if (w) w.onchange = e => { showWhere = e.target.checked; rerender(); };
   root.querySelectorAll('[data-pick]').forEach(c => c.onchange = () => { picked[id][c.dataset.pick] = c.checked; });
   const upd = async (patch, msg) => { try { await call('updateRequest', { id, patch }); toast(msg); await reload(); } catch (e) { toast(e.message, 'bad'); } };

@@ -4,10 +4,10 @@ import { iso, addDays, monday, DAYS, isLabRoom, min, ruleSave, ruleUpdate, ruleP
 
 export const db = { settings: {}, users: [], labs: [], timetable: [], inventory: [], hazcards: [], library: [], requests: [], log: [] };
 export const session = { me: null, idToken: null, token: null };
-const KEY = 'sp_demo_db_v3'; // v3: SDS links in the sample inventory (v2: on-time requests booked straight away)
-const TABLE_KEY = { Settings: 'settings', Users: 'users', Labs: 'labs', Timetable: 'timetable', Inventory: 'inventory', Hazcards: 'hazcards', Library: 'library', Requests: 'requests', InventoryLog: 'log' };
+const KEY = 'sp_demo_db_v4'; // v4: recipes and risk cards; v3: SDS links; v2: on-time requests booked straight away
+const TABLE_KEY = { Settings: 'settings', Users: 'users', Labs: 'labs', Timetable: 'timetable', Inventory: 'inventory', Hazcards: 'hazcards', Library: 'library', Requests: 'requests', InventoryLog: 'log', Recipes: 'recipes', RiskCards: 'riskcards' };
 export const TABLES = Object.keys(TABLE_KEY);
-const KEYCOL = { Users: 'email', Labs: 'room', Timetable: 'id', Inventory: 'id', Hazcards: 'code', Library: 'id', Requests: 'id' };
+const KEYCOL = { Users: 'email', Labs: 'room', Timetable: 'id', Inventory: 'id', Hazcards: 'code', Library: 'id', Requests: 'id', Recipes: 'number', RiskCards: 'code' };
 const uid = p => p + Math.random().toString(36).slice(2, 10);
 
 /* ---------------- live (Google Apps Script) ---------------- */
@@ -35,7 +35,7 @@ function ensureTestUsers() {
 }
 async function loadDemo() {
   try { const s = localStorage.getItem(KEY); if (s) { demo = JSON.parse(s); ensureTestUsers(); return; } } catch (e) {}
-  const names = ['settings', 'users', 'labs', 'timetable', 'inventory', 'hazcards', 'library'];
+  const names = ['settings', 'users', 'labs', 'timetable', 'inventory', 'hazcards', 'library', 'recipes', 'riskcards'];
   const parts = await Promise.all(names.map(n => fetch(`data/demo/${n}.json`).then(r => r.json())));
   demo = Object.fromEntries(names.map((n, i) => [n, parts[i]]));
   demo.requests = sampleRequests(demo); demo.log = [];
@@ -57,7 +57,7 @@ function sampleRequests(d) {
       const past = date < iso(new Date());
       out.push({ id: 'r' + (++n), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), teacherEmail: '', teacher: t.teacher, class: t.class, grade: t.grade, subject: t.subject,
         date, start: t.start, end: t.end, room: t.room, timetabledRoom: t.room, practicalId: p.id, title: p.title, sets,
-        kit: p.kit.map(k => ({ itemId: k.itemId, name: k.name, qty: k.perGroup * sets })), notes: '',
+        kit: p.kit.map(k => ({ itemId: k.itemId, name: k.name, qty: k.perGroup * sets, ...(k.conc ? { conc: k.conc, vol: k.vol } : {}) })), notes: '', method: p.method || '',
         status: past ? 'done' : (n % 6 === 0 ? 'submitted' : 'accepted'), prep: past ? 2 : n % 6 === 0 ? 0 : n % 3, late: n % 6 === 0, lateChoice: n % 6 === 0 ? 'draft' : '', history: [] });
     });
   });

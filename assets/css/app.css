@@ -476,3 +476,20 @@ a.opt:hover { border-color: var(--pri); box-shadow: 0 0 0 2px var(--pri-soft); c
 .opt.mini { min-height: 0; padding: 14px 16px; gap: 4px; }
 .opt.mini strong { font-size: 14px; }
 .pill.sds-pill { background: var(--blue-soft); color: var(--blue-ink); text-decoration: none; }
+
+/* order form: concentration and volume under a chemical; risk assessment table */
+.chemin { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.chemin label { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); gap: 2px; }
+.chemin input { width: 120px; padding: 4px 8px; font-size: 13px; }
+.tbl.risk th { width: 31%; } .tbl.risk.edit th:last-child { width: 40px; }
+.tbl.risk td { vertical-align: top; font-size: 13px; }
+.tbl.risk textarea { width: 100%; min-width: 160px; font-size: 13px; resize: vertical; }
+/* prep sheet: solutions to make up */
+.sol .calc { margin-top: 6px; font-size: 15px; }
+.how { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.howone { border-left: 3px solid var(--pri); padding: 4px 0 4px 12px; }
+.h4 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
+.calc-how { margin: 0 0 6px; }
+pre.recipe { white-space: pre-wrap; font-family: inherit; font-size: 12.5px; line-height: 1.45; background: var(--head); border-radius: 8px; padding: 10px 12px; margin: 6px 0 0; max-height: 420px; overflow: auto; }
+details > summary { cursor: pointer; }
+@media print { .how[hidden] { display: none !important; } pre.recipe { max-height: none; } }

@@ -3,6 +3,7 @@ import { esc, nice, niceLong, deadline, isLate, isLabRoom, labStatus, clashes, u
 import { $, modal, closeModal, toast, hazcardModal, statusChip } from '../ui.js';
 import { go, reload } from '../app.js';
 import * as aiImport from './aiimport.js';
+import { autoRisks, mergeRisks, riskTable, ACTIVITIES, solutionPlan } from '../chem.js';
 
 /*
   Ordering a practical, in three steps (all on #/order, steered by the query string):
@@ -162,7 +163,7 @@ function locked(el, r) {
       ${canPostpone(r) ? `<p>If the lesson can’t go ahead, you can still move it to a later lesson.</p><div><a class="btn pri" href="#/order?postpone=${esc(r.id)}">Postpone to a later lesson</a></div>` : ''}</section></div>`;
 }
 
-const libKit = (kit, sets) => kit.map(k => ({ itemId: k.itemId, name: k.name, perGroup: k.perGroup, fixed: !!k.fixed, qty: k.fixed ? k.perGroup : k.perGroup * sets }));
+const libKit = (kit, sets) => kit.map(k => ({ itemId: k.itemId, name: k.name, perGroup: k.perGroup, fixed: !!k.fixed, conc: k.conc || '', vol: k.vol || '', qty: k.fixed ? k.perGroup : k.perGroup * sets }));
 
 /* ---------------- step 2b: bring a practical from AI ---------------- */
 function fromAI(el, q, teacher, l) {
@@ -171,7 +172,7 @@ function fromAI(el, q, teacher, l) {
     back: orderLink(q, { mode: null }), lessonCard: lessonCard(l, q, teacher),
     onUse: d => {
       const fq = new URLSearchParams(q.toString()); fq.set('mode', 'ai-form');
-      S = { teacher, title: d.title, topic: d.topic, sets: d.sets, kit: d.kit, practicalId: '', notes: d.notes, lateChoice: '', fromAI: true, _for: formKey(fq, teacher) };
+      S = { teacher, title: d.title, topic: d.topic, sets: d.sets, kit: d.kit, practicalId: '', notes: d.notes, method: d.method || '', risks: d.risks || [], lateChoice: '', fromAI: true, _for: formKey(fq, teacher) };
       go(orderLink(q, { mode: 'ai-form' }));
     }
   });
@@ -229,10 +230,11 @@ function form(el, q, editing, teacher, lesson) {
     const p = q.get('practical') ? db.library.find(x => x.id === q.get('practical')) : null;
     S = editing ? JSON.parse(JSON.stringify(editing)) : { teacher, kit: [], sets: 6, title: p?.title || '', practicalId: p?.id || '', notes: '', lateChoice: '' };
     if (p && !editing) { const last = db.requests.filter(r => r.practicalId === p.id && Number(r.sets) > 0).sort((a, b) => b.date.localeCompare(a.date))[0]; if (last) S.sets = Number(last.sets);
-      S.kit = libKit(p.kit, S.sets); }
-    if (editing) S.kit.forEach(k => { k.perGroup = k.perGroup || Math.max(1, Math.round(k.qty / (S.sets || 1))); });
+      S.kit = libKit(p.kit, S.sets); Object.assign(S, { method: p.method || '', prepNotes: p.prepNotes || '', risks: Array.isArray(p.risks) ? p.risks : [] }); }
+    if (editing) { S.kit.forEach(k => { k.perGroup = k.perGroup || Math.max(1, Math.round(k.qty / (S.sets || 1))); }); S.risks = Array.isArray(S.risks) ? S.risks : []; S.riskChecked = editing.status !== 'draft' && S.risks.length > 0; }
     S._for = key;
   }
+  S.risks = mergeRisks(S.risks, autoRisks(db, S), S.riskRemoved || []); // keep the risk assessment in step with the kit and method
   if (lesson && (S.date !== lesson.date || S.start !== lesson.start)) {
     Object.assign(S, { date: lesson.date, start: lesson.start, end: lesson.end, class: lesson.class, grade: lesson.grade, subject: lesson.subject, room: lesson.room, timetabledRoom: lesson.room, lateChoice: '' });
   }
@@ -285,12 +287,36 @@ function form(el, q, editing, teacher, lesson) {
           <div class="scroll"><table class="tbl"><thead><tr><th>Item</th><th>Per group</th><th>Needed</th><th>Free at that time</th><th></th></tr></thead><tbody>
           ${S.kit.map((k, i) => { const it = db.inventory.find(x => x.id === k.itemId); const c = clash.find(x => x.item.id === k.itemId);
             const free = !it ? '<span class="bad-t">Not in our inventory</span>' : it.list !== 'Equipment' ? '<span class="muted">—</span>' : c ? `<span class="bad-t">Only ${Math.max(0, c.have - c.used)} of ${c.have} free</span>` : '<span class="ok-t strong">Free</span>';
-            return `<tr><td>${esc(k.name)}${it?.hazcards?.length ? ` <span class="pill danger">Hazcard ${esc(it.hazcards.join(', '))}</span>` : ''}${it?.sds ? ` <a class="pill sds-pill" href="${esc(it.sds)}" target="_blank" rel="noopener">SDS ↗</a>` : ''}</td>
+            const chem = it?.list === 'Chemicals' || (!it && /acid|solution|oxide|chloride|sulf|nitrate|hydroxide|carbonate|ethanol|indicator/i.test(k.name));
+            return `<tr><td>${esc(k.name)}${it?.hazcards?.length ? ` <span class="pill danger">Hazcard ${esc(it.hazcards.join(', '))}</span>` : ''}${it?.sds ? ` <a class="pill sds-pill" href="${esc(it.sds)}" target="_blank" rel="noopener">SDS ↗</a>` : ''}
+            ${chem && !k.fixed ? `<div class="chemin"><label>Concentration<input data-conc="${i}" value="${esc(k.conc || '')}" placeholder="e.g. 0.1 M, 2 %"></label><label>cm³ per group<input class="num" type="number" min="0" step="any" data-vol="${i}" value="${esc(k.vol || '')}" placeholder="e.g. 50"></label></div>` : ''}</td>
             <td>${k.fixed ? '<span class="muted small">teacher only</span>' : `<input class="num" type="number" min="0" step="any" value="${esc(k.perGroup)}" data-pg="${i}" aria-label="Per group">`}</td><td class="strong">${esc(k.qty)}</td><td>${free}</td>
             <td><button type="button" class="icon-btn" data-rm="${i}" aria-label="Remove ${esc(k.name)}">×</button></td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">No items yet — add the equipment and chemicals you need.</td></tr>'}
           </tbody></table></div>
           <div class="add-row"><input id="addItem" list="invList" placeholder="Type to search the inventory…" aria-label="Equipment to add"><datalist id="invList">${db.inventory.map(i => `<option value="${esc(i.name + (i.size ? ' · ' + i.size : '') + ' [' + i.id + ']')}">`).join('')}</datalist><button type="button" class="btn" id="addBtn">+ Add equipment</button></div>
           <label class="fld">Notes for the technicians<textarea id="notes" rows="2">${esc(S.notes)}</textarea></label>
+        </section>
+
+        <section class="card stack" aria-labelledby="mh"><h2 class="h2" id="mh">Method</h2>
+          <p class="muted small" style="margin:0">The steps students follow. It goes on the prep sheet and helps build the risk assessment below.</p>
+          <textarea id="method" rows="6" placeholder="1. Measure 25 cm³ of …&#10;2. …">${esc(S.method || '')}</textarea>
+          <details${S.prepNotes ? ' open' : ''}><summary class="strong" style="cursor:pointer">How to make up the solutions (optional)</summary>
+            <p class="muted small">Only if you want them made a particular way — e.g. instructions from a past paper. Otherwise the technicians use the school’s recipes.</p>
+            <textarea id="prepNotes" rows="3" placeholder="e.g. Dissolve 5 g of starch in 100 cm³ of boiling water…">${esc(S.prepNotes || '')}</textarea></details>
+        </section>
+
+        <section class="card stack" aria-labelledby="rh" id="riskCard"><div class="row between wrap"><h2 class="h2" id="rh">Risk assessment</h2><span class="pill ${S.riskChecked ? 'ok' : 'warn'}">${S.riskChecked ? 'Checked' : 'Required before sending'}</span></div>
+          <p class="muted small" style="margin:0">Filled in from the hazcards of your chemicals and from what the practical involves. Change anything, remove what doesn’t apply, and add your own rows.</p>
+          <div class="chips" role="group" aria-label="What the practical involves">${ACTIVITIES.filter(a => !a.always).map(a => { const on = S.risks.some(r => r.key === 'act:' + a.id);
+            return `<button type="button" class="chip${on ? ' on' : ''}" aria-pressed="${on}" data-act-toggle="${a.id}">${esc(a.label)}</button>`; }).join('')}</div>
+          <div class="scroll"><table class="tbl boxed risk edit"><thead><tr><th>Hazard (what could go wrong)</th><th>How to reduce the risk</th><th>If it happens</th><th></th></tr></thead><tbody>
+          ${S.risks.map((r, i) => `<tr><td>${r.source ? `<div class="kicker" style="margin:0 0 4px">${esc(r.source)}</div>` : ''}<textarea rows="3" data-risk="${i}" data-f="hazard" aria-label="Hazard">${esc(r.hazard)}</textarea></td>
+            <td><textarea rows="3" data-risk="${i}" data-f="control" aria-label="How to reduce the risk">${esc(r.control)}</textarea></td>
+            <td><textarea rows="3" data-risk="${i}" data-f="action" aria-label="If it happens">${esc(r.action)}</textarea></td>
+            <td><button type="button" class="icon-btn" data-risk-rm="${i}" aria-label="Remove this row">×</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">No rows yet — add the kit and method first.</td></tr>'}
+          </tbody></table></div>
+          <div class="row between wrap"><button type="button" class="btn" id="riskAdd">+ Add a row</button>
+            <label class="check strong"><input type="checkbox" id="riskOk" ${S.riskChecked ? 'checked' : ''}> I have checked this risk assessment</label></div>
         </section>
       </form>
 
@@ -303,14 +329,19 @@ function form(el, q, editing, teacher, lesson) {
           ${unavailable(db, S).length ? `<li class="warn-t">! ${unavailable(db, S).length} item${unavailable(db, S).length > 1 ? 's' : ''} we don’t have — technicians will source</li>` : ''}
           ${hz.length ? `<li class="warn-t">! ${hz.length} hazcard${hz.length > 1 ? 's' : ''} to read</li>` : ''}
           ${S.title ? '' : '<li class="warn-t">! Name the practical</li>'}
+          ${S.riskChecked && S.risks.length ? '<li class="ok-t">✓ Risk assessment checked</li>' : '<li class="warn-t">! Check the risk assessment</li>'}
         </ul></section>
-        <button class="btn pri big block" id="submit" ${!S.title || !S.kit.length || (late && S.lateChoice !== 'draft') ? 'disabled' : ''}>${editing && editing.status !== 'draft' ? 'Send changes' : late ? 'Send late request' : 'Book this practical'}</button>
+        <button class="btn pri big block" id="submit" ${!S.title || !S.kit.length || !S.risks.length || !S.riskChecked || (late && S.lateChoice !== 'draft') ? 'disabled' : ''}>${editing && editing.status !== 'draft' ? 'Send changes' : late ? 'Send late request' : 'Book this practical'}</button>
         ${editing && editing.status !== 'draft' ? `${me.role === 'teacher' ? `<a class="btn big block" href="#/order?postpone=${esc(editing.id)}">Postpone to a later lesson</a>` : ''}` : `<button class="btn big block" id="draft" ${!S.title ? 'disabled' : ''}>Save as draft</button>`}
         <div class="opt locked mini" aria-disabled="true"><span class="row between"><strong>✨ Use AI to fill this in</strong><span class="pill restricted">🔒 Coming soon</span></span><span class="muted xs">AI will suggest the equipment, quantities and hazards for you to check.</span></div>
       </aside>
     </div></div>`;
 
-  const sync = () => { S.title = $('#title').value; S.sets = Math.max(1, Number($('#sets').value) || 1); S.notes = $('#notes').value; S.kit.forEach(k => { if (!k.fixed) k.qty = round(k.perGroup * S.sets); }); };
+  const sync = () => { S.title = $('#title').value; S.sets = Math.max(1, Number($('#sets').value) || 1); S.notes = $('#notes').value; S.kit.forEach(k => { if (!k.fixed) k.qty = round(k.perGroup * S.sets); });
+    S.method = $('#method').value; S.prepNotes = $('#prepNotes').value; S.riskChecked = $('#riskOk').checked;
+    el.querySelectorAll('[data-conc]').forEach(x => { S.kit[Number(x.dataset.conc)].conc = x.value.trim(); });
+    el.querySelectorAll('[data-vol]').forEach(x => { S.kit[Number(x.dataset.vol)].vol = x.value; });
+    el.querySelectorAll('[data-risk]').forEach(x => { const r = S.risks[Number(x.dataset.risk)]; if (r[x.dataset.f] !== x.value) { r[x.dataset.f] = x.value; r.edited = true; } }); };
   const rerender = () => { sync(); form(el, q, editing, teacher, lesson); };
   el.querySelectorAll('[data-lab]').forEach(b => b.onclick = () => { S.room = b.dataset.lab; rerender(); });
   el.querySelectorAll('[data-late]').forEach(b => b.onclick = () => { S.lateChoice = b.dataset.late; rerender(); });
@@ -319,6 +350,18 @@ function form(el, q, editing, teacher, lesson) {
   // redraw after the event finishes, so a blur fired while the old inputs are removed can't redraw twice
   const later = f => setTimeout(f, 0);
   $('#sets').onchange = () => later(rerender);
+  // method and risk assessment: re-check the automatic rows when the method changes; any change means it needs checking again
+  $('#method').onchange = () => { S.riskChecked = false; later(rerender); };
+  $('#riskOk').onchange = () => later(rerender);
+  el.querySelectorAll('[data-risk]').forEach(x => x.oninput = () => { if ($('#riskOk').checked) { $('#riskOk').checked = false; S.riskChecked = false; $('#submit').disabled = true; } });
+  el.querySelectorAll('[data-act-toggle]').forEach(b => b.onclick = () => { sync(); const id = b.dataset.actToggle, key = 'act:' + id;
+    S.activities = S.activities || []; S.riskRemoved = (S.riskRemoved || []).filter(k => k !== key);
+    if (S.risks.some(r => r.key === key)) { S.activities = S.activities.filter(a => a !== id); S.riskRemoved.push(key); } else S.activities.push(id);
+    S.riskChecked = false; rerender(); });
+  el.querySelectorAll('[data-risk-rm]').forEach(b => b.onclick = () => { sync(); const r = S.risks[Number(b.dataset.riskRm)]; S.riskRemoved = (S.riskRemoved || []).concat(r.key); S.risks.splice(Number(b.dataset.riskRm), 1); S.riskChecked = false; rerender(); });
+  $('#riskAdd').onclick = () => { sync(); S.risks.push({ key: 'own:' + Date.now(), source: 'Added by the teacher', hazard: '', control: '', action: '', edited: true }); S.riskChecked = false; rerender();
+    setTimeout(() => el.querySelector(`[data-risk="${S.risks.length - 1}"]`)?.focus(), 0); };
+  el.querySelectorAll('[data-conc],[data-vol]').forEach(x => x.onchange = () => sync());
   el.querySelectorAll('[data-pg]').forEach(inp => inp.onchange = () => { S.kit[Number(inp.dataset.pg)].perGroup = Number(inp.value) || 0; later(() => { rerender(); checkClash(); }); });
   el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { S.kit.splice(Number(b.dataset.rm), 1); rerender(); });
   const add = () => { const v = $('#addItem').value.trim(); const m = v.match(/\[([^\]]+)\]$/); const it = m && db.inventory.find(i => i.id === m[1]);
@@ -334,8 +377,8 @@ function form(el, q, editing, teacher, lesson) {
   const dr = $('#draft'); if (dr) dr.onclick = () => save('draft');
   $('#submit').onclick = async () => {
     sync(); const cards = hazcardsFor(db, S.kit);
-    if (cards.length && !(await hazcardModal(cards, `READ BEFORE ORDERING · ${cards.length} HAZCARD${cards.length > 1 ? 'S' : ''}`, 'I’ve read these — send'))) return;
-    save('submitted');
+    if (cards.length && !(await hazcardModal(cards, `READ BEFORE ORDERING · ${cards.length} HAZCARD${cards.length > 1 ? 'S' : ''}`, 'I’ve read these — next'))) return;
+    if (await preview()) save('submitted');
   };
 
   function checkClash(itemId) {
@@ -348,14 +391,37 @@ function form(el, q, editing, teacher, lesson) {
     $('#pickTime').onclick = () => closeModal();
   }
 
+  /** The whole practical on one page before it goes: lesson, equipment, chemicals, method, hazards, risk assessment. */
+  function preview() {
+    return new Promise(res => {
+      const equip = S.kit.filter(k => db.inventory.find(i => i.id === k.itemId)?.list !== 'Chemicals' && !k.conc);
+      const chems = S.kit.filter(k => !equip.includes(k));
+      const cards = hazcardsFor(db, S.kit);
+      modal(`<div class="row between"><div><div class="kicker">Check before sending</div><h2 class="h2">${esc(S.title)}</h2></div><button class="icon-btn" data-close aria-label="Close">×</button></div>
+        <p class="muted">${esc(niceLong(S.date))} · ${esc(S.start)}–${esc(S.end)} · ${esc(S.class)} · ${esc(roomName(db, S.room))} · <strong>${esc(S.sets)} groups</strong></p>
+        <h3 class="h3">Equipment</h3><ul class="rules">${equip.map(k => `<li>${esc(k.name)} × ${esc(k.qty)}</li>`).join('') || '<li class="muted">None</li>'}</ul>
+        ${chems.length ? `<h3 class="h3">Chemicals</h3><ul class="rules">${chems.map(k => `<li>${esc(k.name)}${k.conc ? ' · ' + esc(k.conc) : ''}${k.vol ? ` · ${esc(k.vol)} cm³ per group (${esc(Number(k.vol) * S.sets)} cm³ in all)` : ''}</li>`).join('')}</ul>` : ''}
+        <h3 class="h3">Method</h3>${S.method ? `<p style="white-space:pre-wrap">${esc(S.method)}</p>` : '<p class="muted">No method given.</p>'}
+        ${cards.length ? `<h3 class="h3">Hazcards</h3><div class="chips">${cards.map(c => `<span class="chip hz">${esc(c.code)}${c.title ? ' · ' + esc(c.title) : ''}</span>`).join('')}</div>` : ''}
+        <h3 class="h3">Risk assessment</h3>${riskTable(S.risks)}
+        ${S.prepNotes ? `<h3 class="h3">How to make up the solutions</h3><p style="white-space:pre-wrap">${esc(S.prepNotes)}</p>` : ''}
+        ${S.notes ? `<h3 class="h3">Notes for the technicians</h3><p style="white-space:pre-wrap">${esc(S.notes)}</p>` : ''}
+        <div class="row end gap wrap"><button class="btn" data-close>Back to edit</button><button class="btn pri" id="pvSend">${late ? 'Send late request' : 'Send to the technicians'}</button></div>`, { wide: true, onClose: () => res(false) });
+      $('#pvSend').onclick = () => { closeModal(); res(true); };
+    });
+  }
+
   async function save(status) {
     sync();
     const r = { ...S }; delete r._for; delete r.topic; delete r.fromAI; r.status = status; r.late = !!late;
-    r.kit = S.kit.map(({ itemId, name, qty }) => ({ itemId, name, qty }));
+    r.kit = S.kit.map(({ itemId, name, qty, conc, vol }) => ({ itemId, name, qty, ...(conc ? { conc } : {}), ...(vol ? { vol: Number(vol) } : {}) }));
+    r.risks = S.risks.map(({ key, source, hazard, control, action, edited }) => ({ key, source, hazard, control, action, ...(edited ? { edited: true } : {}) }));
+    delete r.riskChecked; delete r.riskRemoved;
     r.prep = r.prep || 0;
     try {
       if (!r.practicalId && status !== 'draft') {
-        const p = await call('upsert', { table: 'Library', row: { title: r.title, grade: r.grade, subject: r.subject, course: '', topic: S.topic || '', kit: S.kit.map(k => k.fixed ? { itemId: k.itemId, name: k.name, perGroup: k.qty, fixed: true } : { itemId: k.itemId, name: k.name, perGroup: k.perGroup }), prepMinutes: '', method: '' } });
+        const p = await call('upsert', { table: 'Library', row: { title: r.title, grade: r.grade, subject: r.subject, course: '', topic: S.topic || '', kit: S.kit.map(k => k.fixed ? { itemId: k.itemId, name: k.name, perGroup: k.qty, fixed: true } : { itemId: k.itemId, name: k.name, perGroup: k.perGroup, ...(k.conc ? { conc: k.conc } : {}), ...(k.vol ? { vol: Number(k.vol) } : {}) }),
+          prepMinutes: '', method: r.method || '', risks: r.risks, prepNotes: r.prepNotes || '' } });
         r.practicalId = p.id;
       }
       const saved = await call('saveRequest', { request: r });
