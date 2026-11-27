@@ -1,15 +1,16 @@
 /**
  * Practical library — Google Drive scanner (standalone Apps Script project).
  *
- * Walks every Drive the signed-in account can see (My Drive, "Shared with me" and all
- * shared drives), finds practical / lab files for Grade 11 and Grade 12 (IB DP or A Level),
- * reads the text of each one and writes ONE JSON file you can upload to the Practicals app.
+ * Scans ONE Google Drive folder (and every folder inside it), finds practical / lab files
+ * for Grade 11 and Grade 12 (IB DP or A Level), reads the text of each one and writes ONE
+ * JSON file you can upload to the Practicals app. Nothing outside that folder is touched.
  *
  * HOW TO RUN
  *   1. Go to https://script.google.com → New project. Name it "Practical library scan".
  *   2. Paste this file into Code.gs. Project Settings → tick "Show appsscript.json",
  *      then paste appsscript.json from the same folder (it switches on the Drive API, v3).
- *   3. Optional: edit CONFIG below (e.g. limit the scan to a few top folders).
+ *   3. Put your folder's ID in CONFIG.FOLDER_ID below. Open the folder in Drive: the ID is the
+ *      part of the address after /folders/  (you can also paste the whole link).
  *   4. Select startScan in the toolbar → Run → allow the permissions.
  *   5. Apps Script stops a run after 6 minutes, so the scan saves its progress and carries on by
  *      itself every minute until it's done. You get an email with the link when it's
@@ -26,9 +27,10 @@ var CONFIG = {
   OUTPUT_FOLDER_NAME: 'Practical Library Export',
   OUTPUT_FILE_NAME: 'practicals-grade11-12.json',
 
-  // Leave empty to scan everything. Or put folder IDs here (the part after /folders/ in the
-  // URL) to scan only those folders and the folders inside them.
-  ROOT_FOLDER_IDS: [],
+  // The folder to scan (it and all its subfolders). The ID is the part after /folders/ in the
+  // folder's address, e.g. https://drive.google.com/drive/folders/1AbCdEfGh...  → '1AbCdEfGh...'
+  // Pasting the whole link also works.
+  FOLDER_ID: 'PASTE_FOLDER_ID_HERE',
 
   // The app uses Grade 11 and Grade 12. British "Year 12" = Grade 11, "Year 13" = Grade 12.
   // If your folders say "Year 11 / Year 12" and mean Grade 11 / Grade 12, set this to 0.
@@ -41,7 +43,7 @@ var CONFIG = {
   // Keep files that are clearly IB or A Level but don't say which grade (grade = null).
   INCLUDE_UNKNOWN_GRADE: true,
 
-  // Skip student work: Google Classroom hand-ins and folders named like the ones below.
+  // Skip student work: any "Classroom" folder (Google Classroom hand-ins) and folders named like the ones below.
   EXCLUDE_CLASSROOM_FOLDER: true,
   EXCLUDE_RE: /\b(student\s*(work|submissions?|reports?|ia)|submissions?|hand\s*ins?|marked|graded|portfolios?|mark\s*schemes?|exam\s*papers?|past\s*papers?)\b/i,
 
@@ -110,13 +112,18 @@ var HEADINGS = [
 /* ---------------------------------------------------------------- entry points */
 
 function startScan() {
+  var rootId = folderIdFromConfig_();
   var st = loadState_();
+  if (st && st.phase !== 'done' && st.rootFolderId !== rootId) {
+    Logger.log('The unfinished scan was for another folder — starting again for the new one.');
+    st = null;
+  }
   if (st && st.phase !== 'done') {
     Logger.log('A scan is already in progress (phase: ' + st.phase + '). Continuing it. Run resetScan() first to start again.');
   } else {
-    st = newState_();
+    st = newState_(rootId);
     saveState_(st);
-    Logger.log('New scan started.');
+    Logger.log('New scan started for folder: ' + st.rootName);
   }
   continueScan();
 }
@@ -186,65 +193,75 @@ function buildOutputNow() {
 /* ---------------------------------------------------------------- phase 1: folders */
 
 function scanFolders_(st, timeLeft) {
-  do {
-    var res = Drive.Files.list({
-      q: "mimeType='" + MIME.FOLDER + "' and trashed=false",
-      corpora: 'allDrives', includeItemsFromAllDrives: true, supportsAllDrives: true,
-      pageSize: 1000, pageToken: st.pageToken || undefined,
-      fields: 'nextPageToken, incompleteSearch, files(id,name,parents,driveId)'
+  // Breadth-first walk: list the subfolders of up to 30 known folders per request.
+  while (st.qi < st.queue.length && timeLeft()) {
+    if (!st.batchEnd) st.batchEnd = Math.min(st.qi + 30, st.queue.length);
+    var batch = st.queue.slice(st.qi, st.batchEnd);
+    var res = listChildren_(st, batch, "mimeType='" + MIME.FOLDER + "'", 'files(id,name,parents)');
+    (res.files || []).forEach(function (f) {
+      if (st.folders[f.id] || f.id === st.outputFolderId) return;
+      st.folders[f.id] = [f.name, parentInTree_(st, f.parents)];
+      st.queue.push(f.id);
     });
-    (res.files || []).forEach(function (f) { st.folders[f.id] = [f.name, (f.parents || [])[0] || '', f.driveId || '']; });
-    if (res.incompleteSearch) st.incompleteSearch = true;
     st.pageToken = res.nextPageToken || '';
-  } while (st.pageToken && timeLeft());
-
-  if (!st.pageToken) {
+    if (!st.pageToken) { st.qi = st.batchEnd; st.batchEnd = 0; }
+  }
+  if (st.qi >= st.queue.length) {
     st.phase = 'files';
-    st.stats.folders = Object.keys(st.folders).length;
-    // names of the shared drives, so paths start with the drive's name
-    try {
-      var tok = null;
-      do {
-        var d = Drive.Drives.list({ pageSize: 100, pageToken: tok || undefined, fields: 'nextPageToken, drives(id,name)' });
-        (d.drives || []).forEach(function (x) { st.drives[x.id] = x.name; });
-        tok = d.nextPageToken;
-      } while (tok);
-    } catch (e) { /* no shared drives, or not allowed — fine */ }
+    st.stats.folders = st.queue.length;
+    st.qi = 0; st.batchEnd = 0; st.pageToken = '';
   }
 }
 
 /* ---------------------------------------------------------------- phase 2: files */
 
 function scanFiles_(st, timeLeft) {
-  var mimeQ = WANTED_MIME.map(function (m) { return "mimeType='" + m + "'"; }).join(' or ');
-  do {
-    var res = Drive.Files.list({
-      q: 'trashed=false and (' + mimeQ + ')',
-      corpora: 'allDrives', includeItemsFromAllDrives: true, supportsAllDrives: true,
-      pageSize: 1000, pageToken: st.pageToken || undefined,
-      fields: 'nextPageToken, incompleteSearch, files(id,name,mimeType,parents,driveId,webViewLink,modifiedTime,createdTime,size,md5Checksum)'
-    });
+  var mimeQ = '(' + WANTED_MIME.map(function (m) { return "mimeType='" + m + "'"; }).join(' or ') + ')';
+  while (st.qi < st.queue.length && timeLeft()) {
+    if (!st.batchEnd) st.batchEnd = Math.min(st.qi + 30, st.queue.length);
+    var batch = st.queue.slice(st.qi, st.batchEnd);
+    var res = listChildren_(st, batch, mimeQ, 'files(id,name,mimeType,parents,webViewLink,modifiedTime,createdTime,size,md5Checksum)');
     (res.files || []).forEach(function (f) {
+      if (st.seen[f.id]) return; // a file can sit in two folders of the tree
+      st.seen[f.id] = 1;
       st.stats.files++;
       var c = classify_(st, f);
       if (c) st.candidates.push(c);
     });
-    if (res.incompleteSearch) st.incompleteSearch = true;
     st.pageToken = res.nextPageToken || '';
-  } while (st.pageToken && timeLeft());
-
-  if (!st.pageToken) {
+    if (!st.pageToken) { st.qi = st.batchEnd; st.batchEnd = 0; }
+  }
+  if (st.qi >= st.queue.length) {
     markDuplicates_(st.candidates);
     st.phase = CONFIG.EXTRACT_TEXT ? 'extract' : 'write';
-    st.next = 0;
+    st.next = 0; st.seen = {};
   }
 }
 
+/** One page of the items directly inside any of the given folders. */
+function listChildren_(st, folderIds, extraQ, fileFields) {
+  var parentsQ = '(' + folderIds.map(function (id) { return "'" + id + "' in parents"; }).join(' or ') + ')';
+  var args = {
+    q: parentsQ + ' and trashed=false and ' + extraQ,
+    includeItemsFromAllDrives: true, supportsAllDrives: true,
+    pageSize: 1000, fields: 'nextPageToken, ' + fileFields
+  };
+  if (st.driveId) { args.corpora = 'drive'; args.driveId = st.driveId; }
+  if (st.pageToken) args.pageToken = st.pageToken;
+  for (var attempt = 0; ; attempt++) {
+    try { return Drive.Files.list(args); }
+    catch (e) { if (attempt >= 2) throw e; Utilities.sleep(2000 * (attempt + 1)); }
+  }
+}
+
+function parentInTree_(st, parents) {
+  parents = parents || [];
+  for (var i = 0; i < parents.length; i++) if (st.folders[parents[i]]) return parents[i];
+  return parents[0] || '';
+}
+
 function classify_(st, f) {
-  if (st.outputFolderId && f.parents && f.parents[0] === st.outputFolderId) return null;
-  var chain = folderChain_(st, (f.parents || [])[0], f.driveId);
-  if (chain.skip) return null;
-  if (CONFIG.ROOT_FOLDER_IDS.length && !chain.ids.some(function (id) { return CONFIG.ROOT_FOLDER_IDS.indexOf(id) >= 0; })) return null;
+  var chain = folderChain_(st, parentInTree_(st, f.parents));
 
   var baseName = f.name.replace(/\.[a-z0-9]{2,5}$/i, '');
   // look at the file name first, then the nearest folder, then further up
@@ -253,7 +270,7 @@ function classify_(st, f) {
   var all = norm.join(' / ');
 
   if (CONFIG.EXCLUDE_RE && CONFIG.EXCLUDE_RE.test(all)) return null;
-  if (CONFIG.EXCLUDE_CLASSROOM_FOLDER && chain.names[0] === 'My Drive' && /^classroom$/i.test(chain.names[1] || '')) return null;
+  if (CONFIG.EXCLUDE_CLASSROOM_FOLDER && chain.names.some(function (n) { return /^classroom$/i.test(n); })) return null;
   var isPractical = PRACTICAL_RE.test(all);
   if (CONFIG.REQUIRE_PRACTICAL_WORD && !isPractical) return null;
 
@@ -341,24 +358,14 @@ function topicGuess_(names) {
   return null;
 }
 
-function folderChain_(st, parentId, driveId) {
-  var names = [], ids = [], guard = 0, id = parentId;
-  while (id && guard++ < 40) {
-    var f = st.folders[id];
-    if (!f) {
-      if (st.drives[id]) names.push(st.drives[id]);
-      else if (id === st.rootId) names.push('My Drive');
-      else names.push('(Shared with me)');
-      ids.push(id);
-      break;
-    }
-    ids.push(id);
-    names.push(f[0]);
-    if (st.outputFolderId && id === st.outputFolderId) return { skip: true };
-    id = f[1];
+/** Folder names from the scanned folder down to the file's folder. */
+function folderChain_(st, parentId) {
+  var names = [], guard = 0, id = parentId;
+  while (id && st.folders[id] && guard++ < 60) {
+    names.push(st.folders[id][0]);
+    id = st.folders[id][1];
   }
-  if (!parentId) names.push(driveId && st.drives[driveId] ? st.drives[driveId] : '(Shared with me)');
-  return { names: names.reverse(), ids: ids };
+  return { names: names.reverse() };
 }
 
 function markDuplicates_(list) {
@@ -520,12 +527,11 @@ function writeOutput_(st, partial) {
       'kit is taken from the Equipment/Apparatus section of each file; check quantities before import.',
       'source.duplicateOf marks the same file stored in another folder.'
     ],
-    settings: { yearToGradeOffset: CONFIG.YEAR_TO_GRADE_OFFSET, requirePracticalWord: CONFIG.REQUIRE_PRACTICAL_WORD, includeUnknownGrade: CONFIG.INCLUDE_UNKNOWN_GRADE, rootFolderIds: CONFIG.ROOT_FOLDER_IDS },
+    settings: { yearToGradeOffset: CONFIG.YEAR_TO_GRADE_OFFSET, requirePracticalWord: CONFIG.REQUIRE_PRACTICAL_WORD, includeUnknownGrade: CONFIG.INCLUDE_UNKNOWN_GRADE, scannedFolder: { id: st.rootFolderId, name: st.rootName } },
     stats: {
       foldersScanned: st.stats.folders, filesScanned: st.stats.files, practicalsFound: practicals.length,
       textRead: st.stats.textRead, conversions: st.stats.conversions, errors: st.stats.errors,
       duplicates: practicals.filter(function (p) { return p.source.duplicateOf; }).length,
-      driveSearchIncomplete: !!st.incompleteSearch,
       byGrade: count('grade'), byCourse: count('course'), bySubject: count('subject')
     },
     practicals: practicals
@@ -541,7 +547,7 @@ function writeOutput_(st, partial) {
 
   st.phase = 'done';
   try { var tmp = DriveApp.getFolderById(st.tmpFolderId); tmp.setTrashed(true); } catch (e) {}
-  st.folders = {}; // free up the state file
+  st.folders = {}; st.queue = []; // free up the state file
   if (CONFIG.NOTIFY_BY_EMAIL) {
     try {
       MailApp.sendEmail(Session.getEffectiveUser().getEmail(), 'Practical library scan finished',
@@ -566,19 +572,35 @@ function tidyTitle_(s) {
 }
 function norm_(s) { return String(s || '').replace(/[_\-–.]+/g, ' ').replace(/([a-z])(\d)/gi, '$1 $2').replace(/\s+/g, ' ').toLowerCase(); }
 
-function newState_() {
+function newState_(rootId) {
+  var root;
+  try { root = Drive.Files.get(rootId, { supportsAllDrives: true, fields: 'id,name,mimeType,driveId' }); }
+  catch (e) { throw new Error('Can\'t open folder ' + rootId + ' — check the ID and that this account can see it. (' + e.message + ')'); }
+  if (root.mimeType !== MIME.FOLDER) throw new Error('"' + root.name + '" is not a folder. Put a folder ID in CONFIG.FOLDER_ID.');
   var out = outputFolder_({});
+  var folders = {};
+  folders[root.id] = [root.name, ''];
   return {
-    phase: 'folders', startedAt: new Date().toISOString(), pageToken: '',
-    rootId: DriveApp.getRootFolder().getId(), outputFolderId: out.getId(), tmpFolderId: '',
-    folders: {}, drives: {}, candidates: [], next: 0, incompleteSearch: false,
+    phase: 'folders', startedAt: new Date().toISOString(),
+    rootFolderId: root.id, rootName: root.name, driveId: root.driveId || '',
+    outputFolderId: out.getId(), tmpFolderId: '',
+    folders: folders, queue: [root.id], qi: 0, batchEnd: 0, pageToken: '', seen: {},
+    candidates: [], next: 0,
     stats: { folders: 0, files: 0, textRead: 0, conversions: 0, errors: 0 }
   };
 }
 
+function folderIdFromConfig_() {
+  var v = String(CONFIG.FOLDER_ID || '').trim();
+  var m = v.match(/folders\/([A-Za-z0-9_-]{10,})/) || v.match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+  if (m) v = m[1];
+  if (!/^[A-Za-z0-9_-]{10,}$/.test(v)) throw new Error('Put the ID of the folder to scan in CONFIG.FOLDER_ID (top of the script).');
+  return v;
+}
+
 function statusLine_(st) {
   var s = st.stats;
-  var where = { folders: 'listing folders (' + Object.keys(st.folders || {}).length + ' so far)', files: 'checking files (' + s.files + ' checked, ' + st.candidates.length + ' practicals so far)', extract: 'reading files (' + st.next + ' of ' + st.candidates.length + ')', write: 'writing the JSON', done: 'done' }[st.phase];
+  var where = { folders: 'finding subfolders of "' + st.rootName + '" (' + Object.keys(st.folders || {}).length + ' so far)', files: 'checking files in folder ' + st.qi + ' of ' + st.queue.length + ' (' + s.files + ' checked, ' + st.candidates.length + ' practicals so far)', extract: 'reading files (' + st.next + ' of ' + st.candidates.length + ')', write: 'writing the JSON', done: 'done' }[st.phase];
   return 'Scan: ' + where + '. Text read: ' + s.textRead + ', conversions: ' + s.conversions + ', errors: ' + s.errors + '.';
 }
 
