@@ -304,8 +304,15 @@ class Inventory:
 # ---------------------------------------------------------------- grades and topics
 AS_LAST = {'Chemistry': 22, 'Biology': 11, 'Physics': 11}   # Cambridge 9701 / 9700 / 9702: AS topics, then A Level topics
 
+def grade_text(gs):
+    gs = sorted(set(int(g) for g in gs))
+    return gs[0] if len(gs) == 1 else f'{gs[0]}-{gs[-1]}'
+
 def grade_for(p, course, subj):
     src, path = p['source'], p['source']['path']
+    gs = p.get('grades') or []
+    # newer scans list the grades from folder names; anything below Grade 11 can be used as it is
+    if gs and max(gs) <= 10 and src.get('gradeEvidence') != 'document': return grade_text(gs)
     hay = ' / '.join([path, src['fileName']])
     ev = src.get('gradeEvidence') or ''
     trusted = re.search(r'\b(grade|G)\s*1[12]\b|\bDP\s*[12]\b|Grade\s*:\s*DP', ev, re.I) and not re.search(r'AS\s*(&|and)\s*A\s*Level', ev, re.I)
@@ -340,7 +347,8 @@ TOPICS = {  # one consistent topic list per subject, so the library's topic filt
         (r'mitosis|root tip', 'Cell division'), (r'dna|electrophoresis', 'Nucleic acids and genetics'),
         (r'photosynth|chlorophyll|pigment|chromatography|dcpip|algae|elodea|\btlc\b', 'Photosynthesis'),
         (r'respiration|respirometer|yeast|gas exchange', 'Respiration'), (r'potometer|transpiration', 'Transport in plants'),
-        (r'kidney|urine', 'Homeostasis'), (r'gibberellin', 'Control and coordination'),
+        (r'kidney|urine', 'Homeostasis'), (r'food test|nutrition|digestion', 'Nutrition and digestion'),
+        (r'heart|lung|breathing|pulse|dissect', 'Organs and systems'), (r'seed|germination|plant growth|tropism', 'Plants'), (r'gibberellin', 'Control and coordination'),
         (r'lincoln|quadrat|biodiversity|simpson|ecosystem', 'Ecology and biodiversity'), (r'water circus', 'Water and its properties')],
     'Chemistry': [
         (r'transition|complex|ligand|hydroxides of copper', 'Transition elements'),
@@ -353,22 +361,35 @@ TOPICS = {  # one consistent topic list per subject, so the library's topic filt
         (r'displacement|halogen|group 1|group 2|periodicity|flame test|magnesium and calcium|ammonia from', 'Periodic table and inorganic'),
         (r'intermolecular|polarity|bonding', 'Bonding and structure'),
         (r"ester|alcohol|aldehyde|carbonyl|tollens|iodoform|carboxylic|amine|amide|azo dye|nylon|benzoate|ethanoyl|ethanedioic|methanoic|organic|nitration|polymer|benzene", 'Organic chemistry'),
-        (r'qualitative analysis|chemical tests', 'Qualitative analysis'),
-        (r'chromatograph|solvent|rf value|thin.layer', 'Separation and analysis'), (r'dna extraction', 'Biochemistry')],
+        (r'qualitative analysis|chemical tests|test for (ions|gases)', 'Qualitative analysis'),
+        (r'acids?\b|alkali|neutralis|indicator|salts?\b', 'Acids, bases and salts'),
+        (r'electrolysis', 'Electrolysis'), (r'reactivity|metals?\b|rust', 'Metals and reactivity'),
+        (r'chromatograph|solvent|rf value|thin.layer', 'Separation and analysis'),
+        (r'separat|filtration|distillation|crystallis|evaporat|mixture', 'Separating mixtures'), (r'dna extraction', 'Biochemistry')],
     'Environmental Systems and Societies': [
         (r'mesocosm|models', 'Systems and models'), (r'productivity|photosynth|ecosystem|lincoln|quadrat|simpson', 'Ecosystems'),
         (r'acidification|shells|eutrophication|evaporation|water', 'Water'), (r'soil', 'Soil'), (r'uv\b|atmosphere', 'Atmosphere')],
 }
+TOPICS['Physics'] = [
+    (r'density', 'Density'), (r'speed|velocity|accelerat|motion|free fall|ramp|trolley', 'Motion'),
+    (r'force|spring|hooke|friction|moment|pressure|terminal', 'Forces and pressure'),
+    (r'specific heat|thermal|heat|temperature|conduction|insulation', 'Thermal physics'),
+    (r'circuit|resistance|current|voltage|ohm|diode|battery|electric', 'Electricity'), (r'magnet|electromagnet|motor|induction', 'Magnetism'),
+    (r'wave|sound|refraction|reflection|light|lens|ray', 'Waves, light and sound'), (r'pendulum|oscillat', 'Oscillations'),
+    (r'radioactiv|half.life', 'Radioactivity'), (r'energy|power|efficiency', 'Energy')]
 TOPICS = {k: [(re.compile(a, re.I), b) for a, b in v] for k, v in TOPICS.items()}
 
 def topic_for(subject, title, folder_topic):
+    rules = TOPICS.get(subject) or ([r for v in TOPICS.values() for r in v] if subject == 'Science' else [])
     for text in (title, folder_topic or ''):
-        for rx, t in TOPICS.get(subject, []):
+        for rx, t in rules:
             if rx.search(text): return t
     return folder_topic
 
 def course_of(p):
     path = p['source']['path']
+    if re.search(r'Key Stage 3|\bKS\s*3\b', path): return 'KS3'
+    if re.search(r'Key Stage 4|\bKS\s*4\b', path): return 'IGCSE'
     if re.search(r'International Baccalaureate|\bIB\b', path): return 'IB'
     if re.search(r'A-Level|A Level', path): return 'A Level'
     return (p.get('course') or '').replace('IB / A Level', 'IB')
@@ -445,7 +466,8 @@ def main(scan_path, inv_path, out_dir):
         grade = grade_for(p, course, subject)
         topic = clean_topic(p.get('topic'))
         if topic and group_key(topic) and group_key(topic) <= group_key(title): topic = ''   # a folder named after the practical
-        topic = 'Paper 3 practical exam' if main_doc['is_ci'] or re.search(r'paper 3 practi', title, re.I) else topic_for(subject, title, topic)
+        if main_doc['is_ci'] or re.search(r'paper 3 practi', title, re.I): topic = 'Paper 3 practical exam'
+        elif not (subject == 'Physics' and course == 'IB' and topic): topic = topic_for(subject, title, topic)
         row = {'id': 'drv-' + p['source']['driveFileId'][:20], 'title': title, 'grade': grade, 'subject': subject,
                'course': course, 'topic': topic, 'kit': kit, 'prepMinutes': '',
                'method': p['method']}
