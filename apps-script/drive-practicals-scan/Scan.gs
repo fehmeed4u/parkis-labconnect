@@ -2,7 +2,7 @@
  * Practical library — Google Drive scanner (standalone Apps Script project).
  *
  * Scans ONE Google Drive folder (and every folder inside it), finds practical / lab files
- * for Grade 11 and Grade 12 (IB DP or A Level), reads the text of each one and writes ONE
+ * for every grade (KS3, IGCSE, A Level, IB…), reads the text of each one and writes ONE
  * JSON file you can upload to the Practicals app. Nothing outside that folder is touched.
  *
  * HOW TO RUN
@@ -15,7 +15,7 @@
  *   5. Apps Script stops a run after 6 minutes, so the scan saves its progress and carries on by
  *      itself every minute until it's done. You get an email with the link when it's
  *      finished. You can also run scanStatus() at any time to see how far it has got.
- *   6. Download "practicals-grade11-12.json" from the Drive folder "Practical Library Export"
+ *   6. Download "practicals-all-grades.json" from the Drive folder "Practical Library Export"
  *      and upload it to the app (or hand it to Claude).
  *
  * Other functions: scanStatus() shows progress · stopScan() stops the scan and keeps the
@@ -25,27 +25,33 @@
 
 var CONFIG = {
   OUTPUT_FOLDER_NAME: 'Practical Library Export',
-  OUTPUT_FILE_NAME: 'practicals-grade11-12.json',
+  OUTPUT_FILE_NAME: 'practicals-all-grades.json',
+
+  // Which grades to keep. 'all' keeps every practical (also ones whose grade can't be worked out,
+  // with grades: []). Or a list, e.g. [11, 12] — then files with an unknown grade are kept only
+  // if INCLUDE_UNKNOWN_GRADE is true.
+  GRADES: 'all',
 
   // The folder to scan (it and all its subfolders). The ID is the part after /folders/ in the
   // folder's address, e.g. https://drive.google.com/drive/folders/1AbCdEfGh...  → '1AbCdEfGh...'
   // Pasting the whole link also works.
   FOLDER_ID: 'PASTE_FOLDER_ID_HERE',
 
-  // The app uses Grade 11 and Grade 12. British "Year 12" = Grade 11, "Year 13" = Grade 12.
-  // If your folders say "Year 11 / Year 12" and mean Grade 11 / Grade 12, set this to 0.
+  // Grades are taken from names like "Grade 8", "Grade 9 & 10", "Key Stage 4 (9 - 10)", "DP1".
+  // A British "Year 12" = Grade 11. If your folders say "Year 11" and mean Grade 11, set this to 0.
   YEAR_TO_GRADE_OFFSET: -1,
 
   // A file is kept only if its name or one of its folders sounds like a practical
   // (practical, lab, experiment, investigation, required practical, PAG, CPAC, IA…).
   REQUIRE_PRACTICAL_WORD: true,
 
-  // Keep files that are clearly IB or A Level but don't say which grade (grade = null).
+  // Only used when GRADES is a list: keep files whose grade can't be worked out.
   INCLUDE_UNKNOWN_GRADE: true,
 
   // Skip student work: any "Classroom" folder (Google Classroom hand-ins) and folders named like the ones below.
   EXCLUDE_CLASSROOM_FOLDER: true,
-  EXCLUDE_RE: /\b(student\s*(work|submissions?|reports?|ia)|submissions?|hand\s*ins?|marked|graded|portfolios?|mark\s*schemes?|exam\s*papers?|past\s*papers?)\b/i,
+  // "…_files" folders are the leftovers of web pages saved from a browser.
+  EXCLUDE_RE: /_files\b|\b(homework|student\s*(work|submissions?|reports?|ia)|submissions?|hand\s*ins?|marked|graded|portfolios?|mark\s*schemes?|exam\s*papers?|past\s*papers?)\b/i,
 
   // Reading the text: Google Docs, Slides and Sheets are read directly. Word, PowerPoint
   // and PDF files are copied to a temporary Google Doc, read, then the copy is deleted.
@@ -85,7 +91,10 @@ var PRACTICAL_RE = /practicals?|\bpracs?\b|\blabs?\b|laborator|experiment|invest
 var IB_RE = /\bib\s*(dp)?\b|\bibdp\b|\bdp\s*[12]?\b|diploma\s+programme|\b(hl|sl)\b|internal\s+assessment|\bib\s*[12]\b/i;
 var AL_RE = /\ba\s*-?\s*levels?\b|\balevels?\b|\bcaie\b|\bcie\b|cambridge\s+international\s+as|\b970[0-2]\b|\b9093\b|\bedexcel\b|\baqa\b|\bocr\b|\bcpac\b|\bpags?\s*\d+\b|\bwjec\b/i;
 var AL_CASE_RE = /\bAS\b|\bA2\b/; // case-sensitive: "AS" / "A2" in capitals only
-var LOWER_COURSE_RE = /\bi?gcse\b|\bmyp\b|\bks\s*[1-4]\b|key\s*stage|middle\s*school|checkpoint|lower\s*secondary/i;
+var IGCSE_RE = /\bi\s*gcse\b|\bgcse\b|\b06[0-9]{2}\b|\btriple\b|\bcombined\s+science\b|\bdouble\s+(award|science)\b/i;
+var MYP_RE = /\bmyp\b|middle\s+years\s+programme/i;
+var KS3_RE = /\bks\s*3\b|key\s*stage\s*3|lower\s+secondary|\bcheckpoint\b/i;
+var KS_GRADES = { 3: [6, 7, 8], 4: [9, 10], 5: [11, 12] };
 
 var SUBJECTS = [
   ['Biology', /\bbio(logy)?\b/i],
@@ -273,18 +282,18 @@ function classify_(st, f) {
   var norm = parts.map(norm_);
   var all = norm.join(' / ');
 
-  if (CONFIG.EXCLUDE_RE && CONFIG.EXCLUDE_RE.test(all)) return null;
+  if (CONFIG.EXCLUDE_RE && (CONFIG.EXCLUDE_RE.test(all) || CONFIG.EXCLUDE_RE.test(parts.join(' / ')))) return null;
   if (CONFIG.EXCLUDE_CLASSROOM_FOLDER && chain.names.some(function (n) { return /^classroom$/i.test(n); })) return null;
   var isPractical = PRACTICAL_RE.test(all);
   if (CONFIG.REQUIRE_PRACTICAL_WORD && !isPractical) return null;
 
-  var g = detectGrade_(parts, norm, IB_RE.test(all));
-  var course = detectCourse_(parts, norm);
-  if (g.lower) return null;                      // clearly Grade 6–10 / Year 7–11
-  if (!course.course && LOWER_COURSE_RE.test(all)) return null;  // IGCSE / MYP / KS3 …
-
-  var keep = (g.grade === 11 || g.grade === 12) || (course.course && CONFIG.INCLUDE_UNKNOWN_GRADE);
-  if (!keep) return null;
+  var g = detectGrades_(parts, norm, IB_RE.test(all));
+  var course = detectCourse_(parts, norm, g.grades);
+  if (CONFIG.GRADES !== 'all') {
+    var want = CONFIG.GRADES;
+    var match = g.grades && g.grades.some(function (x) { return want.indexOf(x) >= 0; });
+    if (!match && !(!g.grades && CONFIG.INCLUDE_UNKNOWN_GRADE)) return null;
+  }
 
   var subj = detectSubject_(norm);
   return {
@@ -298,7 +307,7 @@ function classify_(st, f) {
     md5: f.md5Checksum || null,
     created: f.createdTime, modified: f.modifiedTime,
     path: chain.names.join(' / '),
-    grade: g.grade || null,
+    grades: g.grades || [],
     gradeEvidence: g.evidence || null,
     course: course.course || null,
     courseEvidence: course.evidence || null,
@@ -309,38 +318,59 @@ function classify_(st, f) {
   };
 }
 
-function detectGrade_(parts, norm, isIB) {
+/**
+ * Grades from the file name, then the nearest folder, then further up. Returns a list:
+ * "Grade 8" → [8], "Grade 9 & 10" → [9, 10], "Key Stage 4 (9 - 10)" → [9, 10], "DP1" → [11].
+ */
+function detectGrades_(parts, norm, isIB) {
   var off = CONFIG.YEAR_TO_GRADE_OFFSET;
-  for (var i = 0; i < norm.length; i++) {
-    var s = norm[i], raw = parts[i], m, h;
-    if ((m = s.match(/\b(?:dp|ib|ibdp)\s*(?:year|yr|y)?\s*([12])\b/))) return { grade: 10 + Number(m[1]), evidence: raw };
-    if ((m = s.match(/\b(?:grade|grd|gr|g)\s*\.?\s*(\d{1,2})\b/)) && (h = gradeHit_(Number(m[1]), raw))) return h;
-    if ((m = s.match(/\b(1[12])\s*(?:th)?\s*(?:grade|gr)\b/))) return { grade: Number(m[1]), evidence: raw };
+  for (var i = 0; i < parts.length; i++) {
+    var raw = String(parts[i]), low = raw.toLowerCase(), s = norm[i], m, r;
+    if ((m = s.match(/\b(?:dp|ib|ibdp)\s*(?:year|yr|y)?\s*([12])\b/))) return hit_([10 + Number(m[1])], raw);
+    // ranges: "Grade 9 & 10", "Grades 6-8", "Year 12/13", "Key Stage 3 (6 - 8)"
+    if ((m = low.match(/\b(grades?|grd|gr|g|years?|yrs?|y)\s*\.?\s*(\d{1,2})\s*(?:-|–|&|and|to|\/|,)\s*(?:(?:grade|year|g|y)\s*)?(\d{1,2})\b/))) {
+      var o = /^y/.test(m[1]) ? off : 0;
+      if ((r = range_(Number(m[2]) + o, Number(m[3]) + o))) return hit_(r, raw);
+    }
+    if ((m = low.match(/key\s*stage\s*(\d)\s*\(\s*(\d{1,2})\s*(?:-|–|to|&)\s*(\d{1,2})\s*\)/)) && (r = range_(Number(m[2]), Number(m[3])))) return hit_(r, raw);
+    if ((m = s.match(/\b(?:grade|grd|gr|g)\s*\.?\s*(\d{1,2})\b/)) && valid_(Number(m[1]))) return hit_([Number(m[1])], raw);
+    if ((m = s.match(/\b(\d{1,2})\s*(?:st|nd|rd|th)?\s*(?:grade|gr)\b/)) && valid_(Number(m[1]))) return hit_([Number(m[1])], raw);
     if ((m = s.match(/\b(?:year|yr|y)\s*\.?\s*(\d{1,2})\b/))) {
       var y = Number(m[1]);
-      if (isIB && (y === 1 || y === 2)) return { grade: 10 + y, evidence: raw }; // "IB Chemistry / Year 1"
-      if ((h = gradeHit_(y + off, raw))) return h;
+      if (isIB && (y === 1 || y === 2)) return hit_([10 + y], raw); // "IB Chemistry / Year 1"
+      if (valid_(y + off)) return hit_([y + off], raw);
     }
-    if (/\bas\s*level\b/.test(s) || /\bAS\b/.test(raw) || /\blower\s*sixth\b|\bl 6\b/.test(s)) return { grade: 11, evidence: raw };
-    if (/\ba 2\s*level\b/.test(s) || /\bA2\b/.test(raw) || /\bupper\s*sixth\b|\bu 6\b/.test(s)) return { grade: 12, evidence: raw };
-    if (isIB && /\bfirst\s+year\b/.test(s)) return { grade: 11, evidence: raw };
-    if (isIB && /\bsecond\s+year\b/.test(s)) return { grade: 12, evidence: raw };
+    if ((m = s.match(/\b(?:key\s*stage|ks)\s*([345])\b/))) return hit_(KS_GRADES[m[1]], raw);
+    if (/\bas\s*level\b/.test(s) || (!isIB && /\bAS\b/.test(raw))) return hit_([11], raw);
+    if (/\ba 2\s*level\b/.test(s) || (!isIB && /\bA2\b/.test(raw))) return hit_([12], raw);
+    if (isIB && /\bfirst\s+year\b/.test(s)) return hit_([11], raw);
+    if (isIB && /\bsecond\s+year\b/.test(s)) return hit_([12], raw);
   }
   return {};
 }
-function gradeHit_(n, raw) {
-  if (n === 11 || n === 12) return { grade: n, evidence: raw };
-  if (n >= 1 && n <= 10) return { lower: true, evidence: raw };
-  return null; // e.g. "g13" or a stray number — ignore and keep looking
+function valid_(n) { return n >= 1 && n <= 13; }
+function range_(a, b) {
+  if (!valid_(a) || !valid_(b) || b < a || b - a > 4) return null;
+  var r = []; for (var n = a; n <= b; n++) r.push(n); return r;
 }
+function hit_(grades, raw) { return { grades: grades, evidence: raw }; }
 
-function detectCourse_(parts, norm) {
+function detectCourse_(parts, norm, grades) {
+  var lo = grades && grades.length ? grades[0] : null, hi = grades && grades.length ? grades[grades.length - 1] : null;
+  var senior = lo === null || lo >= 11, junior = hi === null || hi <= 10;
   for (var i = 0; i < norm.length; i++) {
-    var ib = IB_RE.test(norm[i]), al = AL_RE.test(norm[i]) || AL_CASE_RE.test(parts[i]);
-    if (ib && !al) return { course: 'IB', evidence: parts[i] };
-    if (al && !ib) return { course: 'A Level', evidence: parts[i] };
-    if (ib && al) return { course: 'IB / A Level', evidence: parts[i] };
+    var ib = IB_RE.test(norm[i]), al = AL_RE.test(norm[i]) || (!IB_RE.test(norm.join(' ')) && AL_CASE_RE.test(parts[i]));
+    // a course name that can't fit the grade (an "A Level" note in a Grade 9 folder) is ignored
+    if (senior && ib && !al) return { course: 'IB', evidence: parts[i] };
+    if (senior && al && !ib) return { course: 'A Level', evidence: parts[i] };
+    if (senior && ib && al) return { course: 'IB / A Level', evidence: parts[i] };
+    if (junior && IGCSE_RE.test(norm[i])) return { course: 'IGCSE', evidence: parts[i] };
+    if (junior && MYP_RE.test(norm[i])) return { course: 'MYP', evidence: parts[i] };
+    if (junior && KS3_RE.test(norm[i])) return { course: 'KS3', evidence: parts[i] };
   }
+  // nothing named: at this school Grades 6–8 are KS3 and Grades 9–10 are IGCSE
+  if (hi !== null && hi <= 8) return { course: 'KS3', evidence: 'grade' };
+  if (lo !== null && lo >= 9 && hi <= 10) return { course: 'IGCSE', evidence: 'grade' };
   return {};
 }
 
@@ -351,18 +381,20 @@ function detectSubject_(norm) {
   return {};
 }
 
-/** The nearest folder whose name isn't just a grade, course, subject or "practicals". */
+/** The nearest folder whose name isn't just a grade, course, subject or "practicals" — tidied up. */
 function topicGuess_(names) {
-  var generic = /^(required|core|dept|depts|department|faculty|science\s+dept|teachers?|staff|practicals?|pracs?|labs?|experiments?|investigations?|required\s+practicals?|core\s+practicals?|worksheets?|resources?|docs?|documents?|files?|teaching|curriculum|science|sciences?|department|shared|my\s*drive|archive|old|new|misc|other|\d{4}([-\/]\d{2,4})?|term\s*\d|sem(ester)?\s*\d|unit\s*\d+)$/i;
-  for (var i = names.length - 1; i >= 0; i--) {
-    var n = norm_(names[i]);
-    var stripped = n.replace(/\b(grade|year|gr|yr|g|y)\s*\d{1,2}\b|\b(ib|dp|ibdp|hl|sl|a\s*-?\s*level|as|a2|cie|caie|aqa|ocr|edexcel)\b|\b(biology|chemistry|physics|bio|chem|phys|science)\b|\b(practicals?|labs?)\b/gi, '').replace(/[\s\-_.,:&]+/g, ' ').trim();
-    if (stripped.length >= 3 && !generic.test(stripped)) return names[i];
+  var generic = /^(required|core|dept|depts|department|faculty|teachers?|staff|pracs?|experiments?|investigations?|worksheets?|resources?|docs?|documents?|files?|teaching|teaching\s+notes|curriculum|sciences?|shared|my\s*drive|archive[ds]?|old|new|misc|other|lessons?|assessments?|requisitions?|orders?|planning|sow|sow\s+and\s+planning|internal\s+assessment|ia|ee|ia\s+ee|key\s+stage|triple|combined|\d{4}([-\/]\d{2,4})?|term\s*\d|sem(ester)?\s*\d|unit\s*\d+)$/i;
+  for (var i = names.length - 1; i >= 1; i--) {
+    var t = String(names[i])
+      .replace(/^\s*(?:\d+|[a-z]?\d+[a-z]?)\s*[-–.)]\s*/i, '')          // "4 - …", "L6 - …"
+      .replace(/^\s*(?:topic|unit|chapter|module)\s*\d+(\.\d+)*\s*[-–:.]?\s*/i, '')
+      .replace(/\([^)]*\)/g, ' ').replace(/[_]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    var stripped = norm_(t).replace(/\b(grades?|years?|gr|yr|g|y)\s*\d{1,2}(\s*(and|&)\s*\d{1,2})?\b|\bkey\s*stage\s*\d\b|\b(ib|dp|ibdp|hl|sl|a\s*level|as|a 2|cie|caie|aqa|ocr|edexcel|igcse|gcse|myp|ks\s*\d|international\s+baccalaureate|group\s*4)\b|\b(biology|chemistry|physics|bio|chem|phys|science|ess|sehs)\b|\b(practicals?|practical's|labs?|technicians?)\b/gi, '').replace(/[\s\-_.,:&'’]+/g, ' ').trim();
+    if (stripped.length >= 3 && !generic.test(stripped)) return t.replace(/\s*[-–]\s*$/, '');
   }
   return null;
 }
 
-/** Folder names from the scanned folder down to the file's folder. */
 function folderChain_(st, parentId) {
   var names = [], guard = 0, id = parentId;
   while (id && st.folders[id] && guard++ < 60) {
@@ -401,8 +433,8 @@ function extractAll_(st, timeLeft) {
           c.extract = 'ok';
           st.stats.textRead++;
           // a heading inside the document beats a guess from the folders
-          if (!c.grade) { var g = detectGrade_([parsed.head], [norm_(parsed.head)], c.course === 'IB'); if (g.grade) { c.grade = g.grade; c.gradeEvidence = 'document: ' + g.evidence.slice(0, 80); } }
-          if (!c.course) { var co = detectCourse_([parsed.head], [norm_(parsed.head)]); if (co.course) { c.course = co.course; c.courseEvidence = 'document'; } }
+          if (!c.grades || !c.grades.length) { var g = detectGrades_([parsed.head], [norm_(parsed.head)], c.course === 'IB'); if (g.grades) { c.grades = g.grades; c.gradeEvidence = 'document'; } }
+          if (!c.course) { var co = detectCourse_([parsed.head], [norm_(parsed.head)], c.grades); if (co.course) { c.course = co.course; c.courseEvidence = 'document'; } }
           if (!c.subject) { var su = detectSubject_([norm_(parsed.head)]); if (su.subject) { c.subject = su.subject; c.subjectEvidence = 'document'; } }
         }
       }
@@ -487,6 +519,7 @@ function writeOutput_(st, partial) {
   var list = st.candidates;
   var practicals = list.map(function (c, i) {
     var kit = (c.sections && c.sections.equipment || []).map(function (line) {
+      line = line.replace(/^\s*(?:[*•\-–·o▪●]|\(?[a-z]\)|\d+[.)])\s+/i, '').trim();
       var q = line.match(/^(\d+(?:\.\d+)?)\s*(?:x|×)?\s+(.+)$/i);
       return q ? { name: q[2].trim(), perGroup: Number(q[1]) } : { name: line, perGroup: 1 };
     }).filter(function (k) { return k.name.length > 1 && k.name.length < 160; });
@@ -494,7 +527,8 @@ function writeOutput_(st, partial) {
       // fields of the app's Library table
       id: 'drv-' + c.driveFileId,
       title: bestTitle_(c),
-      grade: c.grade,
+      grade: c.grades && c.grades.length === 1 ? c.grades[0] : null,
+      grades: c.grades || [],
       subject: c.subject,
       course: c.course,
       topic: c.topicGuess,
@@ -516,7 +550,7 @@ function writeOutput_(st, partial) {
     };
   });
   practicals.sort(function (a, b) {
-    return String(a.grade || 99).localeCompare(String(b.grade || 99)) || String(a.course).localeCompare(String(b.course)) ||
+    return ((a.grades[0] || 99) - (b.grades[0] || 99)) || String(a.course).localeCompare(String(b.course)) ||
       String(a.subject).localeCompare(String(b.subject)) || String(a.topic).localeCompare(String(b.topic)) || a.title.localeCompare(b.title);
   });
 
@@ -527,16 +561,16 @@ function writeOutput_(st, partial) {
     generatedAt: new Date().toISOString(),
     complete: !partial,
     notes: [
-      'grade/course/subject come from folder and file names (see source.*Evidence).',
+      'grades/course/subject come from folder and file names (see source.*Evidence). grade is set only when exactly one grade applies; grades lists them all (e.g. [9, 10]).',
       'kit is taken from the Equipment/Apparatus section of each file; check quantities before import.',
       'source.duplicateOf marks the same file stored in another folder.'
     ],
-    settings: { yearToGradeOffset: CONFIG.YEAR_TO_GRADE_OFFSET, requirePracticalWord: CONFIG.REQUIRE_PRACTICAL_WORD, includeUnknownGrade: CONFIG.INCLUDE_UNKNOWN_GRADE, scannedFolder: { id: st.rootFolderId, name: st.rootName } },
+    settings: { grades: CONFIG.GRADES, yearToGradeOffset: CONFIG.YEAR_TO_GRADE_OFFSET, requirePracticalWord: CONFIG.REQUIRE_PRACTICAL_WORD, includeUnknownGrade: CONFIG.INCLUDE_UNKNOWN_GRADE, scannedFolder: { id: st.rootFolderId, name: st.rootName } },
     stats: {
       foldersScanned: st.stats.folders, filesScanned: st.stats.files, practicalsFound: practicals.length,
       textRead: st.stats.textRead, conversions: st.stats.conversions, errors: st.stats.errors,
       duplicates: practicals.filter(function (p) { return p.source.duplicateOf; }).length,
-      byGrade: count('grade'), byCourse: count('course'), bySubject: count('subject')
+      byGrade: (function () { var o = {}; practicals.forEach(function (p) { var k = p.grades.length ? p.grades.join('–') : 'unknown'; o[k] = (o[k] || 0) + 1; }); return o; })(), byCourse: count('course'), bySubject: count('subject')
     },
     practicals: practicals
   };
@@ -555,7 +589,7 @@ function writeOutput_(st, partial) {
   if (CONFIG.NOTIFY_BY_EMAIL) {
     try {
       MailApp.sendEmail(Session.getEffectiveUser().getEmail(), 'Practical library scan finished',
-        practicals.length + ' practicals found (Grade 11–12, IB / A Level) in ' + st.stats.files + ' files.\n\n' +
+        practicals.length + ' practicals found in ' + st.stats.files + ' files.\n\n' +
         'By grade: ' + JSON.stringify(out.stats.byGrade) + '\nBy subject: ' + JSON.stringify(out.stats.bySubject) +
         '\n\nDownload the JSON: ' + st.outputUrl);
     } catch (e) {}
