@@ -57,7 +57,7 @@ var CONFIG = {
   // and PDF files are copied to a temporary Google Doc, read, then the copy is deleted.
   EXTRACT_TEXT: true,
   CONVERT_OFFICE_AND_PDF: true,
-  MAX_CONVERSIONS: 600,     // upper limit for Word/PDF/PowerPoint conversions
+  MAX_CONVERSIONS: 2500,    // upper limit for Word/PDF/PowerPoint conversions (each takes a few seconds)
   MAX_EXCERPT_CHARS: 5000,  // text kept per file (the JSON stays small enough to upload)
 
   NOTIFY_BY_EMAIL: true,

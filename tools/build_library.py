@@ -2,7 +2,10 @@
 """
 Build the app's practical library from a Drive scan (apps-script/drive-practicals-scan).
 
-    python3 tools/build_library.py SCAN.json INVENTORY.json OUT_DIR
+    python3 tools/build_library.py SCAN.json INVENTORY.json OUT_DIR [OLDER_SCAN.json ...]
+
+Older scans are optional: when SCAN.json has a file it couldn't read (e.g. it hit its conversion
+limit), the text is taken from an older scan that did read it.
 
 Reads the JSON the Drive scan wrote, drops what isn't a practical (exam papers, mark schemes,
 answers, rubrics, IA samples, purchase requests, templates…), merges the copies of the same
@@ -41,13 +44,42 @@ EXCLUDE = [
     (r'^\d*\s*worksheet$|practical\s+\d+\s+worksheet', 'worksheet without a practical name'),
     (r'\bIA\b|internal\s+assessment', 'IA guidance'),
     (r'practical\s*booklet\s*\d+\s*\(accompanies', 'booklet without a practical name'),
-    (r'^(anatomy|chapter\s*\d+|stwaves|8 standing wave)$', 'not a practical sheet'),
+    (r'^(anatomy|chapter\s*\d+|ch\s*\d+|stwaves|8 standing wave)$', 'not a practical sheet'),
+]
+EXCLUDE += [
+    (r'^\._|^~\$', 'hidden system file'),
+    (r'cross.?word|answer\s*key|\bHW\b|\bWS\b.*\bHW\b|revision|starter|plenary|quiz|\btest\s+key\b', 'worksheet / quiz'),
+    (r'lab\s*rules|hazards?\s+in\s+the\s+lab|lab\s+equipments?$|safety\s+(assessment|in\s+the\s+lab|rules|test)|working\s+in\s+the\s+lab', 'lab safety lesson'),
+    (r'scientific.?investigations?$|working.?scientifically|planning\s+investigations|project\s+hints|lesson\s+plan', 'skills lesson'),
+    (r'lab\s*report|template|task\s+sheet', 'template / ideas'),
+    (r'\bquestions?\b.*answers?|\bMS\b|_MS\b', 'answers'),
+    (r'word\s*(scramble|hunt|fill|cards?)|crossword|knowledge.organiser|glossary|vocabulary|role.play|level\s*matrix|graph\s*paper|ordering\s+sentences|'
+     r'untitled\s+document|youtube|\blinks?$|_link\b|suggested\s+foods|oxo_act|specification\s+map|question\s+slip|questions?\s+for\s+after|challenge\s+question|'
+     r'mixed\s+wave\s+problems|calculation\s+worksheets?|support\s+sheets', 'worksheet / resource'),
+    (r'safety\s+(picture|problems|lab|do)|draw\s+circles\s+around|lab(oratory)?\s+equipment|hazard\s+warning|study\s+guide|what\s+is\s+science|equipment\s+(exploration|cer)|bunsen\s+burner\s+(intro|worksheet)', 'lab safety / skills lesson'),
+    (r'controls\s+and\s+variables|variables\s+extension|writing\s+frame|investigation\s+planning|planning\s+an(\s+experiment)?\b|^psa\s*\d|who\s+should\s+we\s+trust|investigation\s+sheet$|^periodic\s+table', 'skills lesson'),
+    (r'write.?up|practical.?table|results?\s+table|heating\s+curve\s+table|assessment', 'results / write-up sheet'),
+    (r'phet|elearning', 'virtual lab'),
+    (r'exam\s+(preparation|exercises)|experimental\s+(skills|design)|peer\s+evaluation|investigation\s+report|alternative\s+to\s+practical|^\d*\.?\s*overview|'
+     r'finishing\s+core|continuation|calculations|practical\s+guide|spotting\s+sheet|theory\s+table|practical\s+question|correct\s+the\s+experimental', 'lesson / exam skills'),
 ]
 EXCLUDE = [(re.compile(p, re.I), why) for p, why in EXCLUDE]
+# whole folders that hold no practical sheets (safety data sheets, hazcards, orders, logs, inventories…)
+EXCLUDE_FOLDERS = [(re.compile(p, re.I), why) for p, why in [
+    (r"Practical's TECHNICIANS / (Health and Safety|Orders|Equipment lists|Practical Requests|Practicals Photos|Trip)", 'technicians\' admin files'),
+    (r"Practical's TECHNICIANS$", 'technicians\' admin files'),
+    (r'^SCIENCE / Admin Science', 'department admin'),
+    (r'/ Assessments?\b|/ \d*\s*-?\s*Assessments?\b|Practical Skills Assessment', 'assessment'),
+]]
 EXCLUDE_TYPES = {'Excel': 'spreadsheet', 'Text': 'text file'}
 
 # ---------------------------------------------------------------- titles
 FIXES = [  # this department's file-name shorthand and typos
+    (r'^[BCP][123]\s+\d\.\d{1,2}\s+(AT\s+)?(practical\s*)?(\((foundation|higher|core|extension)\)\s*)?', ''),
+    (r'^(biology|chemistry|physics)\s+(?=teacher\s+and\s+technician)', ''), (r'^teacher\s+and\s+technician\s*(notes\s*)?', ''), (r'^notes\s+', ''), (r'^\d\.\d{1,2}\s+(AT\s+)?practical\s*(\((foundation|higher)\)\s*)?', ''),
+    (r'^\d\.\d{1,2}\s+teacher\s+and\s+technician\s+notes\s*', ''), (r'^[BCP][123]\s+big', 'Big'), (r'\s*-\s*KS\s*3?(-4)?\s*$', ''), (r'^\d[A-Z][a-z]\d\s*-\s*', ''),
+    (r'\s*\((lower|medium|higher|foundation)\)\s*$|-\((lower|medium)\)$', ''), (r'\s+(worksheet|ws|differentiated|instructions|integrated instructions|pdf|new|updated|copy)$', ''), (r'^L\d+(-\d+)?\s*[-:]?\s+(practical\s*-?\s*)?', ''), (r'^TECH\s+SHEET\s*-\s*\d+\s*-\s*Physics\s+CP\s+iGCSE\s*-\s*', ''),
+    (r'^G\d{1,2}\s+', ''), (r'\s*-?\s*protocol\s+by\s+\w+(\s+updated)?', ''), (r'\.docx?$', ''), (r'^igcse\s+chem\s+prac\s+\d+\s*-\s*', ''),
     (r'\bDet\.? of\b', 'Determination of'), (r'\bVit\.?\s*C\b', 'vitamin C'), (r'\bChromat\b', 'Chromatography'), (r'\bsolv\b', 'solvent'),
     (r'\bEmp\.? formula\b', 'Empirical formula'), (r'\bsol$', 'solutions'), (r'\bSurfact\b', 'Surface'), (r'\bClorophyll\b', 'Chlorophyll'),
     (r'\bquantative\b', 'quantitative'), (r'\bSimspon\s*s\b', "Simpson's"), (r'\bchemiclas\b', 'chemicals'), (r'\bprac\b', 'practical'),
@@ -70,8 +102,20 @@ CANON = [  # titles that mean the same practical
 ]
 CANON = [(re.compile(a, re.I), b) for a, b in CANON]
 
+ABBREV = [(r'\bDisplac\b', 'displacement reactions'), (r'\bdiplacement react\b', 'displacement reactions'), (r'\bCombust\b', 'combustion'),
+          (r'\bNeut\b', 'neutralisation'), (r'\bprop ionic coval comp\b', 'properties of ionic and covalent compounds'), (r'\bCromatografy\b', 'chromatography'),
+          (r'\bupturned mc\b', 'upturned measuring cylinder'), (r'\bTemp,\s*pH\b', 'Temperature, pH'), (r'\bmiscoscope\b', 'microscope'), (r'\bBaloon\b', 'Balloon'),
+          (r'\bst$', 'starch'), (r'\bmi$', 'milk'), (r'\binte$', 'intensity'), (r'systemspdf$', 'systems')]
+ABBREV = [(re.compile(a, re.I), b) for a, b in ABBREV]
+
 def clean_title(t):
     t = unicodedata.normalize('NFKC', t or '').replace(' ́', "'").replace('´', "'").replace('_', ' ')
+    t = re.sub(r'(\.docx?|\.pdf|\.pptx?)+$', '', t, flags=re.I)
+    t = re.sub(r'^\s*(II\s+)?(igcse\s+)?(chem\s+)?prac(tical)?\s+\d+\s*-\s*', '', t, flags=re.I)
+    t = re.sub(r'^\s*(\d+[tT]\s*bio\s+(lesson\s+\d+\s+|practical\s+\d+-?\s*)?|\d*tbio\s+|triple\s+bio\s+|DSci\s*-\s*|HA\s*-\s*(practical\s*-\s*)?|edgcse\s+aap\s+\w+\s+(prac(tical)?\s+)?|saps\s*-\s*|II\s+(igcse\s+)?(chem\s+)?)', '', t, flags=re.I)
+    t = re.sub(r'\s*-\s*(illustrated|student(\s+worksheet)?|teaching\s+notes|TBC|NOT\s+CORE)\s*$|\s+(igcse|updated)\s*$', '', t, flags=re.I)
+    t = re.sub(r'^\s*\d+\.\d+\.\d+\s+', '', t)
+    for rx, b in ABBREV: t = rx.sub(b, t)
     t = re.sub(r'(?<=[A-Za-z])-(?=[A-Za-z])', ' ', t) if len(re.findall(r'[A-Za-z]-[A-Za-z]', t)) >= 2 else t   # Drag-Swimming-Pool
     t = re.sub(r'-{2,}', ' ', t)
     t = re.sub(r'^\s*copy of\s+', '', t, flags=re.I)
@@ -95,7 +139,7 @@ def clean_title(t):
     for rx, b in FIXES: t = rx.sub(b, t).strip(' -:.')
     for rx, b in CANON:
         if rx.search(t): t = b; break
-    t = re.sub(r'\s{2,}', ' ', t).strip()
+    t = re.sub(r'\s+updated$', '', re.sub(r'\s{2,}', ' ', t).strip(), flags=re.I)
     t = ' '.join(w.capitalize() if len(w) > 3 and w.isupper() and not re.search(r'\d|DNA|DCPIP|TLC|PAG|UV|LED', w) else w for w in t.split())
     if re.match(r'^ph\b', t, re.I): return 'pH' + t[2:]
     return t[:1].upper() + t[1:] if t else t
@@ -122,7 +166,13 @@ def title_from_text(text):
 STOP = set('a an the of and with in on to for by using use from at or its their your vs'.split())
 GROUP_DROP = set('investigating investigation investigate determining determination measuring measurement '
                  'calculating finding lab practical prac experiment experiments hl sl ib dp protocol activity '
-                 'sheet method worksheet'.split())
+                 'sheet method worksheet foundation higher lower medium teacher technician note notes tt differentiated '
+                 'extension support supporting instruction instructions ws pdf link new updated copy version ks3 requisition illustrated igcse'.split())
+
+def activate_key(file_name):
+    """Activate Science files start with a lesson code ('B1 1.1', 'C2 2.1', 'P1 1.5'); every sheet of one lesson shares it."""
+    m = re.match(r'^\s*([BCP][123])\s+(\d\.\d{1,2})\b', file_name)
+    return frozenset({'activate', m.group(1).upper(), m.group(2)}) if m else None
 
 def group_key(title):
     w = re.findall(r'[a-z0-9]+', title.lower().replace("'", ''))
@@ -311,7 +361,8 @@ def grade_text(gs):
 def grade_for(p, course, subj):
     src, path = p['source'], p['source']['path']
     gs = p.get('grades') or []
-    # newer scans list the grades from folder names; anything below Grade 11 can be used as it is
+    m = re.search(r'Activate\s*([123])\b', path)
+    if m and gs and max(gs) <= 8: return 5 + int(m.group(1))   # Activate 1/2/3 = Grades 6/7/8
     if gs and max(gs) <= 10 and src.get('gradeEvidence') != 'document': return grade_text(gs)
     hay = ' / '.join([path, src['fileName']])
     ev = src.get('gradeEvidence') or ''
@@ -325,10 +376,12 @@ def grade_for(p, course, subj):
         if re.search(r'\bAS\b', hay) or re.search(r'confidential instructions|_ci_', hay, re.I): return 11   # Paper 3 = AS practical exam
         m = (re.search(r'practical[_ ]info[_ ]sheet[_ ](\d+)\.', hay, re.I) or re.search(r'/\s*(?:topic\s*)?(\d{1,2})\s*[.\-]?\s+[A-Z][a-z]', path))
         if m and subj in AS_LAST: return 11 if int(m.group(1)) <= AS_LAST[subj] else 12
-    return '11-12'
+    return '11-12' if course in ('IB', 'A Level') else ''
 
 def clean_topic(t):
     if not t: return ''
+    t = re.sub(r'^\s*([BCP][123],?\s*\d\.\d{1,2}|U\d+\s*L\d+|L\d+(\s*[-&]\s*\d+)?)\s*[-:]?\s*', '', t)
+    if re.search(r'extra\s+activit|worksheets?|activities|^random|^materials?$|^instructions$|^powerpoints?$|^presentations$|answers|^\w+\s+trimester$|core\s+prac|^cpac\d', t, re.I): return ''
     t = re.sub(r'^\s*(topic|unit)\s*\d+\s*[-:.]?\s*', '', t, flags=re.I)
     t = re.sub(r'^\s*\d+(\.\d+)?\s*[-.]?\s*', '', t)
     t = re.sub(r'\b(IB|DP\s*\d?|A[\s-]?Level|AS)\b', '', t)
@@ -348,7 +401,7 @@ TOPICS = {  # one consistent topic list per subject, so the library's topic filt
         (r'photosynth|chlorophyll|pigment|chromatography|dcpip|algae|elodea|\btlc\b', 'Photosynthesis'),
         (r'respiration|respirometer|yeast|gas exchange', 'Respiration'), (r'potometer|transpiration', 'Transport in plants'),
         (r'kidney|urine', 'Homeostasis'), (r'food test|nutrition|digestion', 'Nutrition and digestion'),
-        (r'heart|lung|breathing|pulse|dissect', 'Organs and systems'), (r'seed|germination|plant growth|tropism', 'Plants'), (r'gibberellin', 'Control and coordination'),
+        (r'heart|lung|breathing|pulse|dissect|skeleton|joint|muscle|bone|vital capacity', 'Organs and systems'), (r'seed|germination|plant growth|tropism', 'Plants'), (r'gibberellin', 'Control and coordination'),
         (r'lincoln|quadrat|biodiversity|simpson|ecosystem', 'Ecology and biodiversity'), (r'water circus', 'Water and its properties')],
     'Chemistry': [
         (r'transition|complex|ligand|hydroxides of copper', 'Transition elements'),
@@ -400,8 +453,17 @@ def subject_of(p):
 # ---------------------------------------------------------------- main
 TYPE_RANK = {'Google Doc': 0, 'Word': 1, 'PDF': 2, 'PowerPoint': 3, 'Google Slides': 3}
 
-def main(scan_path, inv_path, out_dir):
+def main(scan_path, inv_path, out_dir, older=()):
     scan = json.load(open(scan_path, encoding='utf-8'))
+    filled = 0
+    for path in older:   # fill in text this scan couldn't read from an older scan that did
+        old = {p['source']['driveFileId']: p for p in json.load(open(path, encoding='utf-8'))['practicals'] if p.get('content')}
+        for p in scan['practicals']:
+            o = old.get(p['source']['driveFileId'])
+            if not p.get('content') and o:
+                p['content'] = o['content']; p['source']['extract'] = 'ok (older scan)'; filled += 1
+                if not p.get('title') or p['title'] == p['source']['fileName']: p['title'] = o['title']
+    if older: print(f'{filled} files filled in from older scans')
     inv = Inventory(json.load(open(inv_path, encoding='utf-8')) if inv_path else [])
     excluded, kept = [], []
     for p in scan['practicals']:
@@ -412,11 +474,20 @@ def main(scan_path, inv_path, out_dir):
         if title != p['title'] and fn_key and len(fn_key) <= 4 and not (fn_key & group_key(clean_title(title))) and not re.search(r'info|sheet|booklet|worksheet|\bprac\b|demo', p['title'], re.I):
             title = p['title']   # a requisition copied from another one still has the old practical's name in it
         why = None
-        if s.get('duplicateOf'): why = 'exact copy of another file'
+        text_title = title_from_text(text)
+        is_ci_file = bool(re.search(r'confidential\s+instructions|_ci_', s['fileName'], re.I))
+        folder_why = None if is_ci_file else next((w for rx, w in EXCLUDE_FOLDERS if rx.search(s['path'])), None)
+        if folder_why: why = folder_why
+        elif s.get('duplicateOf'): why = 'exact copy of another file'
         elif s['fileType'] in EXCLUDE_TYPES: why = EXCLUDE_TYPES[s['fileType']]
         else:
             for rx, w in EXCLUDE:
-                if rx.search(s['fileName']) or rx.search(title) or (w in ('saved web page', 'IA sample', 'student work') and rx.search(s['path'])):
+                if text_title and w not in ('saved web page', 'hidden system file', 'exam paper / mark scheme', 'answers'):
+                    if rx.search(text_title): why = w; break
+                    continue   # the document names a practical: judge it by that, not by its file name
+                spaced = re.sub(r'[-_]+', ' ', s['fileName'] + ' | ' + title)
+                if rx.search(s['fileName']) or rx.search(title) or (w not in ('saved web page', 'hidden system file') and rx.search(spaced)) \
+                        or (w in ('saved web page', 'IA sample', 'student work') and rx.search(s['path'])):
                     why = w; break
         if why: excluded.append((p, why)); continue
         is_ci = bool(re.search(r'confidential\s+instructions|_ci_', s['fileName'], re.I))
@@ -428,13 +499,17 @@ def main(scan_path, inv_path, out_dir):
             var = re.search(r'Instructions\s*(\d\d)', f, re.I) or code
             title = f"Paper 3 practical exam, {when} (variant {var.group(var.lastindex)})" if when and var else 'Paper 3 practical exam'
         else:
-            title = clean_title(title)
+            title = clean_title(title) or clean_title(p['title']) or re.sub(r'\.\w{2,4}$', '', s['fileName'])
+            if not re.sub(r'(?i)\b(igcse|chem(istry)?|practicals?|core|worksheet|lab|sheet|protocol|exam|\d+)\b|[\W_]', '', title):
+                folder = re.sub(r'^\s*\d+\s*[_\-.]\s*|\s*\((core|optional)\)\s*$', '', s['path'].split(' / ')[-1], flags=re.I)
+                title = clean_title(folder) or title   # "1- PRACTICAL (CORE)" in folder "1_Solubility (Core)" → "Solubility"
         is_req = bool(re.search(r'requisition|prac(tical)?\s+request|request', s['fileName'], re.I) or text.lstrip().upper().startswith('PRACTICAL REQUISITION'))
         req_kit, sets = kit_from_requisition(text) if (is_req or '\tEQUIPMENT AND CHEMICALS' in text) else (None, None)
         sec_kit = kit_from_section(c.get('equipment'))
         kept.append({'p': p, 'title': title, 'text': text, 'is_req': is_req, 'is_ci': is_ci,
                      'kit': dedupe_kit(req_kit if req_kit else sec_kit), 'kit_src': 'requisition' if req_kit else ('sheet' if sec_kit else ''),
-                     'sets': sets, 'key': group_key(title), 'course': course_of(p), 'subject': subject_of(p)})
+                     'sets': sets, 'key': activate_key(s['fileName']) or group_key(title), 'course': course_of(p), 'subject': subject_of(p),
+                     'tech': bool(re.search(r'teacher\s+and\s+technician|tech(nician)?\s*sheet', s['fileName'], re.I))})
 
     # group copies of the same practical (same subject + course + near-identical title words)
     groups = []
@@ -453,9 +528,9 @@ def main(scan_path, inv_path, out_dir):
     library, review = [], []
     for g in groups:
         items = g['items']
-        sheets = [k for k in items if not k['is_req']] or items
+        sheets = [k for k in items if not k['is_req'] and not k['tech']] or [k for k in items if not k['is_req']] or items
         main_doc = min(sheets, key=lambda k: (TYPE_RANK.get(k['p']['source']['fileType'], 5), -len(k['text']), len(k['title'])))
-        kit_doc = max(items, key=lambda k: (k['kit_src'] == 'requisition', len(k['kit']) if len(k['kit']) <= 40 else 0))
+        kit_doc = max(items, key=lambda k: (k['kit_src'] == 'requisition', k['tech'] and bool(k['kit']), len(k['kit']) if len(k['kit']) <= 40 else 0))
         p = main_doc['p']
         kit = []
         for k in kit_doc['kit']:
@@ -489,5 +564,5 @@ def main(scan_path, inv_path, out_dir):
 
 if __name__ == '__main__':
     if len(sys.argv) < 4: sys.exit(__doc__)
-    lib, rev, exc = main(sys.argv[1], sys.argv[2], sys.argv[3])
+    lib, rev, exc = main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:])
     print(f'{len(lib)} practicals from {sum(r["files"] for r in rev)} files · {len(exc)} files left out')
