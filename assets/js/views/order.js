@@ -1,5 +1,5 @@
 import { db, session, call } from '../store.js';
-import { esc, nice, niceLong, deadline, isLate, isLabRoom, labStatus, clashes, unavailable, hazcardsFor, roomName, totalStock, iso, addDays, monday, min, fmtMin, dayCode, isSchoolDay, parse, DAYS, gradeOf } from '../logic.js';
+import { esc, nice, niceLong, deadline, isLate, isLabRoom, labStatus, clashes, unavailable, hazcardsFor, roomName, totalStock, iso, addDays, monday, min, fmtMin, dayCode, isSchoolDay, parse, DAYS, gradeOf, gradesOf } from '../logic.js';
 import { $, modal, closeModal, toast, hazcardModal, statusChip } from '../ui.js';
 import { go, reload } from '../app.js';
 import * as aiImport from './aiimport.js';
@@ -127,7 +127,7 @@ function fromAI(el, q, teacher, l) {
 /* ---------------- step 2: how to start ---------------- */
 function chooseStart(el, q, teacher, l) {
   const late = isLate(l.date, db.settings); const orders = ordersFor(teacher, l.date, l.start);
-  const libForGrade = db.library.filter(p => Number(p.grade) === Number(l.grade || gradeOf(l.class))).length;
+  const libForGrade = db.library.filter(p => gradesOf(p).includes(Number(l.grade || gradeOf(l.class)))).length;
   el.innerHTML = `<div class="page" style="max-width:1100px">
     <div><a href="${orderLink(q, { date: null, start: null, mode: null })}" class="small">‹ Pick another lesson</a>
     <div class="steps-nav" aria-label="Steps"><span class="done">1 · Pick a lesson</span><span class="on">2 · How to start</span><span>3 · Request</span></div>

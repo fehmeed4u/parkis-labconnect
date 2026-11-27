@@ -358,7 +358,12 @@ function sheet_(name) {
   else if (sh.getLastColumn() < TABLES[name].length) sh.getRange(1, 1, 1, TABLES[name].length).setValues([TABLES[name]]).setFontWeight('bold'); // new columns added in an update
   return sh;
 }
-function enc_(h, v) { if (v === undefined || v === null) return ''; return JSON_COLS[h] || typeof v === 'object' ? JSON.stringify(v) : v; }
+function enc_(h, v) {
+  if (v === undefined || v === null) return '';
+  // a grade range like "11-12" must stay text, or the Sheet turns it into a date
+  if (h === 'grade' && typeof v === 'string' && /^\s*\d{1,2}\s*[-–\/,&]/.test(v)) return "'" + v.trim();
+  return JSON_COLS[h] || typeof v === 'object' ? JSON.stringify(v) : v;
+}
 function dec_(h, v) {
   if (JSON_COLS[h] && typeof v === 'string' && v !== '' && /^[\[{"]/.test(v)) { try { return JSON.parse(v); } catch (e) { return v; } }
   if (v instanceof Date) return v.toISOString();

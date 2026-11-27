@@ -108,6 +108,14 @@ In the site, go to **Admin → Import & export → Import**, choose a table, cho
 | Inventory | `inventory.json` |
 | Hazcards | `hazcards.json` |
 | Library | `library.json` |
+
+**Building the library from Google Drive.** `apps-script/drive-practicals-scan` scans a Drive folder and writes one JSON file (see its README). Turn that file into `library.json` with:
+
+```
+python3 tools/build_library.py practicals-all-grades.json school-data/inventory.json school-data/
+```
+
+The tool leaves out exam papers, mark schemes, answer and guidance sheets, rubrics, IA samples, purchase requests and templates. It merges the copies of each practical (Word, PDF, "(1)", "old" and its requisition sheet). It reads the equipment from requisition-sheet tables and "Equipment / Apparatus" sections and matches each item to the inventory. It also writes `library-review.csv`, with every practical and the files it came from, and `excluded.csv`, with every file it left out and why. A practical used in both years gets the grade `11-12`, and it shows under G11 and under G12 in the library.
 | Users | `users.json` |
 
 Then open **People & roles** and click **+ Add person** for each member of staff: their name (exactly as on the timetable, so teachers see their own lessons), a username, and their role (*Teacher*, *Lab technician* or *Head of department*). The app makes a **temporary password** and shows it once — copy it and give it to the person with their username. The first time they sign in they must choose their own password (at least 8 characters).

@@ -1,5 +1,5 @@
 import { db, session, call } from '../store.js';
-import { esc, nice, iso, hazcardsFor, roomName, toCSV } from '../logic.js';
+import { esc, nice, iso, hazcardsFor, roomName, toCSV, gradesOf, gradeLabel } from '../logic.js';
 import { $, hazcardModal, promptBox, toast, confirmBox, download } from '../ui.js';
 import { go, reload } from '../app.js';
 
@@ -7,13 +7,13 @@ const st = { grade: 'All', topic: 'All', q: '', sel: null };
 
 export async function render(el, _rest, params = new URLSearchParams()) {
   const orderCtx = params.get('order'); // set when a teacher is choosing a practical for a lesson (#/order step 2)
-  if (orderCtx && st._ctx !== orderCtx) { st._ctx = orderCtx; const g = Number(params.get('grade')); st.grade = g && db.library.some(p => Number(p.grade) === g) ? g : 'All'; st.topic = 'All'; st.q = ''; st.sel = null; }
+  if (orderCtx && st._ctx !== orderCtx) { st._ctx = orderCtx; const g = Number(params.get('grade')); st.grade = g && db.library.some(p => gradesOf(p).includes(g)) ? g : 'All'; st.topic = 'All'; st.q = ''; st.sel = null; }
   const ctxLesson = (() => { if (!orderCtx) return null; const p = new URLSearchParams(orderCtx.split('?')[1] || ''); const t = p.get('teacher') || session.me.name;
     const l = db.timetable.find(x => x.teacher === t && x.start === p.get('start') && x.day === ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(p.get('date') + 'T12:00').getDay()]);
     return l ? { ...l, date: p.get('date') } : null; })();
   const runs = id => db.requests.filter(r => r.practicalId === id && !['draft', 'cancelled', 'rejected'].includes(r.status)).sort((a, b) => b.date.localeCompare(a.date));
-  const grades = ['All', ...[...new Set(db.library.map(p => Number(p.grade)).filter(Boolean))].sort((a, b) => a - b)];
-  const byGrade = db.library.filter(p => st.grade === 'All' || Number(p.grade) === st.grade);
+  const grades = ['All', ...[...new Set(db.library.flatMap(gradesOf))].sort((a, b) => a - b)];
+  const byGrade = db.library.filter(p => st.grade === 'All' || gradesOf(p).includes(st.grade));
   const topics = ['All', ...new Set(byGrade.map(p => p.topic).filter(Boolean))];
   const list = byGrade.filter(p => (st.topic === 'All' || p.topic === st.topic) && (!st.q || (p.title + ' ' + p.topic + ' ' + p.subject).toLowerCase().includes(st.q.toLowerCase())));
   const sel = db.library.find(p => p.id === st.sel) || list[0];
@@ -30,7 +30,7 @@ export async function render(el, _rest, params = new URLSearchParams()) {
     <div class="chips"><span class="small" style="color:var(--ink-2);margin-right:2px">Topic</span>${topics.map(t => chip(st.topic === t, t === 'All' ? 'All topics' : t, `data-t="${esc(t)}"`)).join('')}</div>
     <div class="cols">
       <section class="grid-cards">${list.map(p => { const r = runs(p.id); return `<button class="pcard${sel && p.id === sel.id ? ' on' : ''}" data-p="${esc(p.id)}" aria-pressed="${!!sel && p.id === sel.id}">
-        <span class="meta">G${esc(p.grade)} · ${esc(p.subject)}</span><strong>${esc(p.title)}</strong><span class="topic">${esc(p.topic || '')}</span>
+        <span class="meta">${[gradeLabel(p), p.subject].filter(Boolean).map(esc).join(' · ')}</span><strong>${esc(p.title)}</strong><span class="topic">${esc(p.topic || '')}</span>
         <span class="foot"><span>Done ${r.length}×</span><span>${r[0] ? 'Last: ' + esc(monthYear(r[0].date)) : 'Not run yet'}</span></span></button>`; }).join('') || '<p class="muted">No practicals for this grade and topic yet.</p>'}</section>
       ${sel ? detail(sel, runs(sel.id), canEdit, orderCtx) : ''}
     </div>
@@ -51,10 +51,10 @@ export async function render(el, _rest, params = new URLSearchParams()) {
   const del = $('#delP'); if (del) del.onclick = async () => { if (await confirmBox('Remove this practical from the library?', 'Remove')) { await call('remove', { table: 'Library', key: sel.id }); st.sel = null; reload(); } };
   async function edit(p) {
     const v = await promptBox(p.id ? 'Edit practical' : 'New practical', [
-      { name: 'title', label: 'Name', value: p.title }, { name: 'grade', label: 'Grade', type: 'number', value: p.grade }, { name: 'subject', label: 'Subject', value: p.subject },
+      { name: 'title', label: 'Name', value: p.title }, { name: 'grade', label: 'Grade (e.g. 11, or 11-12 for both)', value: p.grade }, { name: 'subject', label: 'Subject', value: p.subject },
       { name: 'course', label: 'Course (IGCSE, A Level, IB…)', value: p.course }, { name: 'topic', label: 'Topic', value: p.topic },
       { name: 'prepMinutes', label: 'Prep time (minutes)', type: 'number', value: p.prepMinutes }, { name: 'method', label: 'Method sheet link', value: p.method }]);
-    if (!v) return; await call('upsert', { table: 'Library', row: { ...p, ...v, grade: Number(v.grade) || v.grade, kit: p.kit || [] } }); toast('Saved'); reload();
+    if (!v) return; await call('upsert', { table: 'Library', row: { ...p, ...v, grade: Number(v.grade) || String(v.grade || '').trim(), kit: p.kit || [] } }); toast('Saved'); reload();
   }
 }
 
@@ -63,7 +63,7 @@ function detail(p, runs, canEdit, orderCtx) {
   const badge = r => r.rating ? `<span class="pill warn">★ ${esc(r.rating)}</span>` : r.imported ? '<span class="pill">Imported</span>' : r.date >= today ? '<span class="pill st-accepted">Booked</span>' : `<span class="pill">${esc(r.status === 'done' ? 'Done' : r.status)}</span>`;
   const day = d => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   return `<aside class="card side-col sticky" style="gap:16px">
-    <div><div class="muted xs" style="font-weight:500">G${esc(p.grade)} · ${esc(p.subject)}${p.course ? ' · ' + esc(p.course) : ''}</div><h2 class="h2" style="font-family:var(--display);font-size:24px;margin-top:4px">${esc(p.title)}</h2>${p.topic ? `<div class="muted">Topic: ${esc(p.topic)}</div>` : ''}</div>
+    <div><div class="muted xs" style="font-weight:500">${[gradeLabel(p), p.subject, p.course].filter(Boolean).map(esc).join(' · ')}</div><h2 class="h2" style="font-family:var(--display);font-size:24px;margin-top:4px">${esc(p.title)}</h2>${p.topic ? `<div class="muted">Topic: ${esc(p.topic)}</div>` : ''}</div>
     <div><h3 class="h3">Per group</h3><ul class="rules" style="line-height:1.6">${p.kit.map(k => `<li>${esc(k.perGroup)} × ${esc(k.name)}</li>`).join('') || '<li class="muted">No kit listed yet</li>'}</ul></div>
     ${cards.length ? `<div class="chips"><span class="kicker danger">Hazcards</span>${cards.map(c => `<button class="chip hz" data-hz="${esc(c.code)}">${esc(c.code)}${c.title ? ' · ' + esc(c.title) : ''}</button>`).join('')}</div>` : ''}
     <div><h3 class="h3">Done before</h3>${runs.length ? `<ul class="hist">${runs.slice(0, 8).map(r => `<li><b>${esc(day(r.date))}</b><span class="muted">${esc(r.class)} · ${esc(r.teacher)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} sets</span>${badge(r)}</li>`).join('')}</ul>` : '<p class="muted small">Not run yet.</p>'}</div>

@@ -95,6 +95,15 @@ export function stageOf(r, today = iso(new Date())) {
 /** 0 not started, 1 in progress, 2 prepared — the technicians' traffic light. */
 export const prepOf = r => r.status === 'done' || r.status === 'ready' ? 2 : r.status === 'in_progress' ? 1 : Number(r.prep) || 0;
 
+/** Grades a library practical is for: 11 → [11], "11-12" → [11, 12], "9, 10" → [9, 10]. */
+export function gradesOf(p) {
+  const v = String(p?.grade ?? '').trim();
+  const r = v.match(/^(\d{1,2})\s*[-–]\s*(\d{1,2})$/);
+  if (r) { const out = []; for (let n = Number(r[1]); n <= Number(r[2]) && out.length < 8; n++) out.push(n); return out; }
+  return v.split(/[\s,/&]+/).map(Number).filter(Boolean);
+}
+/** "G11", "G11–12", or "" when no grade is set. */
+export const gradeLabel = p => { const g = gradesOf(p); return !g.length ? '' : g.length === 1 ? 'G' + g[0] : 'G' + g[0] + '–' + g[g.length - 1]; };
 export function gradeOf(cls) { const m = String(cls || '').match(/(\d+)/); return m ? Number(m[1]) : ''; }
 
 /** Simple CSV (RFC 4180-ish) both ways. */

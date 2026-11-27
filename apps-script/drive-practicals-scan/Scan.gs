@@ -433,6 +433,8 @@ function extractAll_(st, timeLeft) {
           c.extract = 'ok';
           st.stats.textRead++;
           // a heading inside the document beats a guess from the folders
+          // "Cambridge International AS & A Level" in a header names the course, not the grade
+          parsed.head = parsed.head.replace(/\bAS\s*(&|and)\s*A\s*Level\b/gi, 'A Level');
           if (!c.grades || !c.grades.length) { var g = detectGrades_([parsed.head], [norm_(parsed.head)], c.course === 'IB'); if (g.grades) { c.grades = g.grades; c.gradeEvidence = 'document'; } }
           if (!c.course) { var co = detectCourse_([parsed.head], [norm_(parsed.head)], c.grades); if (co.course) { c.course = co.course; c.courseEvidence = 'document'; } }
           if (!c.subject) { var su = detectSubject_([norm_(parsed.head)]); if (su.subject) { c.subject = su.subject; c.subjectEvidence = 'document'; } }

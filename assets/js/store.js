@@ -210,7 +210,7 @@ export async function refresh() {
   Object.assign(db, d, { settings: norm });
   db.inventory.forEach(i => { i.rooms = i.rooms || {}; i.storage = i.storage || {}; i.hazcards = Array.isArray(i.hazcards) ? i.hazcards : []; });
   db.requests.forEach(r => { r.kit = Array.isArray(r.kit) ? r.kit : []; r.prep = Number(r.prep) || 0; r.late = r.late === true || r.late === 'TRUE' || r.late === 'true'; });
-  db.library.forEach(p => { p.kit = Array.isArray(p.kit) ? p.kit : []; p.grade = Number(p.grade) || p.grade; });
+  db.library.forEach(p => { p.kit = Array.isArray(p.kit) ? p.kit : []; p.grade = Number(p.grade) || (p.grade == null ? '' : String(p.grade)); });
   db.timetable.forEach(t => { t.grade = Number(t.grade) || t.grade; });
   db.requests.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || min(a.start) - min(b.start));
   return db;
