@@ -202,16 +202,30 @@ export async function changePassword(current, password) { const me = await call(
 export async function logout() { try { if (!isDemo() && session.token) await live('logout'); } catch (e) {} Object.assign(session, { me: null, token: null, idToken: null }); }
 export async function demoUsers() { if (!demo) await loadDemo(); return demo.users; }
 
+/* A Google Sheet turns "08:30" into a date (30 Dec 1899) and "2026-11-30" into a timestamp.
+   Older copies of the Apps Script sent those back as ISO strings: turn them back into what was typed. */
+const pad = n => String(n).padStart(2, '0');
+function asTime(v) {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(v)) return v;
+  const d = new Date(v); return isNaN(d) ? v : pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+function asDay(v) {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(v)) return v;
+  const d = new Date(v); return isNaN(d) ? v : d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
 export async function refresh() {
   const d = await call('bootstrap');
   const s = d.settings || {}; const norm = {};
   Object.keys(s).forEach(k => { let v = s[k]; if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) {} } norm[k] = v; });
+  ['dayStart', 'dayEnd'].forEach(k => { if (norm[k]) norm[k] = asTime(norm[k]); });
   norm.leadDays = Number(norm.leadDays) || 3; norm.holidays = Array.isArray(norm.holidays) ? norm.holidays : [];
   Object.assign(db, d, { settings: norm });
   db.inventory.forEach(i => { i.rooms = i.rooms || {}; i.storage = i.storage || {}; i.hazcards = Array.isArray(i.hazcards) ? i.hazcards : []; });
+  db.requests.forEach(r => { r.start = asTime(r.start); r.end = asTime(r.end); r.date = asDay(r.date); });
   db.requests.forEach(r => { r.kit = Array.isArray(r.kit) ? r.kit : []; r.prep = Number(r.prep) || 0; r.late = r.late === true || r.late === 'TRUE' || r.late === 'true'; });
   db.library.forEach(p => { p.kit = Array.isArray(p.kit) ? p.kit : []; p.grade = Number(p.grade) || (p.grade == null ? '' : String(p.grade)); });
-  db.timetable.forEach(t => { t.grade = Number(t.grade) || t.grade; });
+  db.timetable.forEach(t => { t.grade = Number(t.grade) || t.grade; t.start = asTime(t.start); t.end = asTime(t.end); });
   db.requests.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || min(a.start) - min(b.start));
   return db;
 }
