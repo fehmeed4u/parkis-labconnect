@@ -112,6 +112,10 @@ var HEADINGS = [
 /* ---------------------------------------------------------------- entry points */
 
 function startScan() {
+  if (typeof Drive === 'undefined') {
+    throw new Error('The Drive API service is not switched on. In the editor: Services (left sidebar) → + → ' +
+      'Drive API → Version v3 → Add. Then run startScan again.');
+  }
   var rootId = folderIdFromConfig_();
   var st = loadState_();
   if (st && st.phase !== 'done' && st.rootFolderId !== rootId) {
