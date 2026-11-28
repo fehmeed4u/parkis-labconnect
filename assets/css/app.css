@@ -313,6 +313,19 @@ button.stat.on { border-color: var(--pri); background: var(--pri-soft); }
 .links { display: flex; gap: 10px; align-items: center; font-size: 13px; }
 .links .sep { width: 1px; height: 14px; background: var(--line); }
 
+/* library: narrow list of names on the left, the chosen practical as the main pane */
+.lib-split { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; align-items: start; }
+[data-hide-l] .lib-split { grid-template-columns: minmax(0, 1fr); }
+.lib-split .plist { position: sticky; top: calc(var(--topbar) + 12px); max-height: calc(100vh - var(--topbar) - 24px); overflow: auto; }
+.lib-split .plist-head { position: sticky; top: 0; z-index: 1; }
+.lib-split .prow .pk { font-size: 11px; color: var(--muted); }
+.lib-detail { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.lib-dhead { display: flex; gap: 8px 16px; align-items: flex-start; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); }
+.lib-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.lib-method { white-space: pre-wrap; line-height: 1.6; background: var(--head); border: 1px solid var(--line-soft); border-radius: 5px; padding: 10px 12px; }
+@media (max-width: 1100px) { .lib-cols { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 800px) { .lib-split { grid-template-columns: minmax(0, 1fr); } .lib-split .plist { position: static; max-height: 360px; } }
+
 /* ---------- technician queue + prep sheet ---------- */
 .queue { flex: 1 1 300px; max-width: 360px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 .queue:only-child { max-width: none; } /* no prep sheet beside it (narrow screens) */
