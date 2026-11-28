@@ -62,6 +62,13 @@ export async function render(el, _rest, params = new URLSearchParams()) {
     if (cards.length && !(await hazcardModal(cards, `READ BEFORE ORDERING · ${cards.length} HAZCARD${cards.length > 1 ? 'S' : ''}`, 'I’ve read these — continue'))) return;
     go(orderCtx ? '#' + orderCtx + (orderCtx.includes('?') ? '&' : '?') + 'practical=' + encodeURIComponent(sel.id) : '#/order?practical=' + encodeURIComponent(sel.id));
   };
+  const tnBtn = $('#tnBtn'), tnPop = $('#tnPop');
+  if (tnBtn) { const show = on => { tnPop.hidden = !on; tnBtn.setAttribute('aria-expanded', String(on)); };
+    tnBtn.onclick = e => { e.stopPropagation(); show(tnPop.hidden); };
+    $('#tnClose').onclick = () => show(false);
+    tnPop.onclick = e => e.stopPropagation();
+    document.addEventListener('click', () => tnPop.isConnected && show(false));
+    tnPop.addEventListener('keydown', e => { if (e.key === 'Escape') { show(false); tnBtn.focus(); } }); }
   el.querySelectorAll('[data-hz]').forEach(b => b.onclick = () => { const cards = hazcardsFor(db, sel.kit); const i = cards.findIndex(c => c.code === b.dataset.hz); hazcardModal(cards.slice(i).concat(cards.slice(0, i)), 'HAZCARD'); });
   $('#expP').onclick = () => download('practical-library-' + iso(new Date()) + '.csv', toCSV(db.library.map(p => ({ ...p, timesRun: runs(p.id).length, lastRun: lastRun(p)?.date || '' }))), 'text/csv');
   const ed = $('#editP'); if (ed) ed.onclick = () => edit(sel);
@@ -89,7 +96,10 @@ function detail(p, runs, canEdit, orderCtx) {
     <header class="lib-dhead">
       <div class="grow"><div class="muted small">${[gradeLabel(p), p.subject, p.course, p.topic].filter(Boolean).map(esc).join(' · ')}</div>
         <h2 class="h1" style="margin-top:2px">${esc(p.title)}</h2></div>
-      <div class="row gap wrap">${canEdit ? '<button class="btn" id="editP">Edit</button><button class="btn danger-outline" id="delP">Remove</button>' : ''}
+      <div class="row gap wrap">${p.prepNotes ? `<span class="pop-wrap"><button class="btn" id="tnBtn" aria-expanded="false" aria-controls="tnPop">Technician notes</button>
+          <div class="popover" id="tnPop" role="dialog" aria-label="Technician notes" hidden><div class="row between"><strong>Technician notes</strong><button class="icon-btn" id="tnClose" aria-label="Close">×</button></div>
+          <div style="white-space:pre-wrap">${esc(p.prepNotes)}</div></div></span>` : ''}
+        ${canEdit ? '<button class="btn" id="editP">Edit</button><button class="btn danger-outline" id="delP">Remove</button>' : ''}
         ${isLink(p.method) ? `<a class="btn" href="${esc(p.method)}" target="_blank" rel="noopener">Method sheet ↗</a>` : ''}
         <button class="btn pri" id="useP" title="Fills in the kit, method and sets (from the last time, or the usual number). You only pick the class, date and lab.">${orderCtx ? 'Use for this lesson' : 'Use for my order'}</button></div>
     </header>
@@ -99,8 +109,7 @@ function detail(p, runs, canEdit, orderCtx) {
         ${perGroup.length ? `<table class="tbl boxed"><tbody>${perGroup.map(k => `<tr><td class="num" style="width:1%;white-space:nowrap"><strong>${esc(k.perGroup)} ×</strong></td><td>${esc(k.name)}${k.conc ? ` <span class="muted">(${esc(k.conc)})</span>` : ''}</td></tr>`).join('')}</tbody></table>`
           : `<p class="muted small">${p.kit.length ? 'Nothing per group.' : 'No kit listed yet — see the method sheet. List the kit when you order, and it is saved here for next time.'}</p>`}
         ${forClass.length ? `<h3 class="h3" style="margin-top:12px">For the class</h3><table class="tbl boxed"><tbody>${forClass.map(k => `<tr><td class="num" style="width:1%;white-space:nowrap"><strong>${esc(k.perGroup)} ×</strong></td><td>${esc(k.name)}</td></tr>`).join('')}</tbody></table>` : ''}</section>
-      <section><h3 class="h3">Done before</h3>${runs.length ? `<ul class="hist">${runs.slice(0, 8).map(r => `<li><b>${esc(day(r.date))}</b><span class="muted">${esc(r.class)} · ${esc(r.teacher)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} sets</span>${badge(r)}</li>`).join('')}</ul>` : '<p class="muted small">Not run yet.</p>'}
-        ${p.prepNotes ? `<h3 class="h3" style="margin-top:12px">Technician notes</h3><div class="note" style="white-space:pre-wrap">${esc(p.prepNotes)}</div>` : ''}</section>
+      <section><h3 class="h3">Done before</h3>${runs.length ? `<ul class="hist">${runs.slice(0, 8).map(r => `<li><b>${esc(day(r.date))}</b><span class="muted">${esc(r.class)} · ${esc(r.teacher)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} sets</span>${badge(r)}</li>`).join('')}</ul>` : '<p class="muted small">Not run yet.</p>'}</section>
     </div>
     ${p.method && !isLink(p.method) ? `<section><h3 class="h3">Method</h3><div class="lib-method">${esc(p.method)}</div></section>` : ''}
   </article>`;
