@@ -601,6 +601,39 @@ function linkSds(folderId, overwrite) {
   Logger.log('SDS: ' + n.exact + ' exact, ' + n.close + ' close (check), ' + n.web + ' from the web, ' + n.none + ' none, ' + n.kept + ' kept. ' + files.length + ' files, ' + unused.length + ' unused. See the "SDS report" tab.');
 }
 
+/**
+ * Other names of chemicals (propanone = acetone). Make a tab called "Alternative names" and either import
+ * alternative-names.csv into it (columns id, chemical, altNames) or paste the Name and Alternative name(s)
+ * columns straight from the inventory spreadsheet. Then run linkAltNames from the editor.
+ * Each row is matched by id first, then by name. Names are separated with ";" in the app.
+ * Run linkSds afterwards: it also searches the SDS folder by the other names.
+ * overwrite = true also replaces names typed in by hand in the app (by default they are kept and the new ones added).
+ */
+function linkAltNames(overwrite) {
+  var sh = SpreadsheetApp.getActive().getSheetByName('Alternative names');
+  if (!sh || sh.getLastRow() < 2) throw new Error('Make an "Alternative names" tab with the names first');
+  var v = sh.getDataRange().getValues(), head = v.shift().map(function (h) { return String(h).trim().toLowerCase(); });
+  var col = function (re) { for (var j = 0; j < head.length; j++) if (re.test(head[j])) return j; return -1; };
+  var cId = col(/^id$/), cName = col(/^(chemical|name)$/), cAlt = col(/^(altnames|alternative name|other name)/);
+  if (cAlt < 0 || (cId < 0 && cName < 0)) throw new Error('The tab needs an altNames (or "Alternative name(s)") column and an id or name column');
+  var rows = read_('Inventory'), byId = {}, byName = {};
+  rows.forEach(function (r) { if (r.list !== 'Chemicals') return; byId[r.id] = r; var k = sdsKey_(sdsBase_(r.name)); (byName[k] = byName[k] || []).push(r); });
+  var split = function (s) { return String(s || '').replace(/[\t\r\n"]+/g, ' ').split(/\s*;\s*|,\s+|\s+\/\s+|\s+or\s+/).map(function (x) { return x.replace(/\s+/g, ' ').replace(/^[\s.]+|[\s.]+$/g, ''); }).filter(function (x) { return x && !/^\(.*\)$/.test(x); }); };
+  var n = { set: 0, none: [] };
+  v.forEach(function (x) {
+    var alt = split(x[cAlt]); if (!alt.length) return;
+    var hits = cId >= 0 && byId[String(x[cId]).trim()] ? [byId[String(x[cId]).trim()]] : cName >= 0 ? byName[sdsKey_(sdsBase_(String(x[cName])))] || [] : [];
+    if (!hits.length) { n.none.push(String(cName >= 0 ? x[cName] : x[cId])); return; }
+    hits.forEach(function (r) {
+      var have = overwrite ? [] : split(String(r.altNames || '').replace(/\|/g, ';'));
+      alt.forEach(function (a) { if (have.map(function (h) { return h.toLowerCase(); }).indexOf(a.toLowerCase()) < 0) have.push(a); });
+      r.altNames = have.join('; '); n.set++;
+    });
+  });
+  importTable_('Inventory', rows, 'replace', { role: 'admin' });
+  Logger.log('Other names added to ' + n.set + ' chemicals.' + (n.none.length ? ' Not found in the inventory (' + n.none.length + '): ' + n.none.join(', ') : ''));
+}
+
 /** Nightly copy of the whole sheet into a "Practicals backups" folder. Run installBackup() once. */
 function backupNow() {
   var ss = SpreadsheetApp.getActive();

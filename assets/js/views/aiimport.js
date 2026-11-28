@@ -130,11 +130,18 @@ function candidates(row, loose = false) {
   const out = [];
   for (const it of db.inventory) {
     if (lists ? !lists.includes(it.list) : it.list === 'Chemicals' || it.list === 'Temporary' || it.list === 'Documents') continue;
-    const iw = new Set(words(it.name)); let common = 0; aw.forEach(w => { if (iw.has(w)) common++; });
-    if (!common) continue;
-    const cover = common / aw.length; if (cover < need) continue; // the AI's key words must be there ("gas syringe" is not a "syringe")
-    let score = cover + 0.3 * common / Math.max(1, iw.size);
-    if (iw.has(aw[aw.length - 1])) score += 0.5; // the last word is usually the thing itself: gas SYRINGE, conical FLASK
+    // a chemical can be named by any of its other names (propanone = acetone)
+    const names = [it.name, ...String(it.altNames || '').split(/\s*[;|]\s*/).filter(Boolean)];
+    let score = -1;
+    for (const n of names) {
+      const iw = new Set(words(n)); let common = 0; aw.forEach(w => { if (iw.has(w)) common++; });
+      if (!common) continue;
+      const cover = common / aw.length; if (cover < need) continue; // the AI's key words must be there ("gas syringe" is not a "syringe")
+      let s = cover + 0.3 * common / Math.max(1, iw.size);
+      if (iw.has(aw[aw.length - 1])) s += 0.5; // the last word is usually the thing itself: gas SYRINGE, conical FLASK
+      score = Math.max(score, s);
+    }
+    if (score < 0) continue;
     if (ai.kind !== 'chemical') { const m = sizeMatch(ai.size || ai.name, it.size + ' ' + it.name); score += 0.6 * (loose ? Math.max(0, m) : m); } // a different size is still a useful suggestion
     if (totalStock(it) > 0) score += 0.1;
     if (score >= 0.5 || loose) out.push({ item: it, score });
@@ -163,7 +170,7 @@ export function render(el, opts) {
   const { lesson: l, key } = opts; const saved = store(key);
   const st = { text: saved.get(), parsed: null, err: '', rows: [], sets: Number(new URLSearchParams(location.hash.split('?')[1] || '').get('sets')) || 6 };
   const prompt = () => buildPrompt(l, st.sets);
-  const invList = `<datalist id="aiInv">${db.inventory.map(i => `<option value="${esc(i.name + (i.size ? ' · ' + i.size : '') + ' [' + i.id + ']')}">`).join('')}</datalist>`;
+  const invList = `<datalist id="aiInv">${db.inventory.map(i => `<option value="${esc(i.name + (i.altNames ? ' (' + i.altNames + ')' : '') + (i.size ? ' · ' + i.size : '') + ' [' + i.id + ']')}">`).join('')}</datalist>`;
 
   const parse = () => {
     st.err = ''; st.parsed = null; st.rows = [];

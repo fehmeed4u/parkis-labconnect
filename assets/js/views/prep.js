@@ -72,7 +72,7 @@ function chemSection(r, chems) {
   const toMake = plans.filter(x => x.p.makeUp || x.p.recipe);
   return `<div><h3 class="h3">Chemicals</h3><div class="scroll"><table class="tbl boxed"><thead><tr><th class="no-print" style="width:70px">Made up</th><th>Chemical</th><th>Concentration</th><th>Per group</th><th>In all</th><th>Make up</th><th>Where</th><th>Safety</th></tr></thead><tbody>
     ${plans.map(x => `<tr><td class="no-print"><input type="checkbox" data-pick="${x.i}" ${picked[r.id][x.i] ? 'checked' : ''} aria-label="Made up ${esc(x.k.name)}"></td>
-      <td><span class="row gap">${iconImg(x.it, 24)}<span>${esc(x.k.name)}</span></span></td><td>${esc(x.k.conc || '—')}</td>
+      <td><span class="row gap">${iconImg(x.it, 24)}<span>${esc(x.k.name)}${x.it.altNames ? `<br><span class="muted small">also called ${esc(x.it.altNames.split(/\s*[;|]\s*/).join(', '))}</span>` : ''}</span></span></td><td>${esc(x.k.conc || '—')}</td>
       <td>${x.k.vol ? esc(x.k.vol) + ' cm³' : esc(x.k.qty)}</td><td>${x.p.need ? esc(x.p.need) + ' cm³' : '—'}</td><td class="strong">${x.p.makeUp ? esc(x.p.makeUp) + ' cm³' : '—'}</td>
       <td class="where">${whereOf(x.it) || '<span class="muted">not in inventory</span>'}</td>
       <td>${x.it.hazcards?.length ? 'Hazcard ' + esc(x.it.hazcards.join(', ')) : ''}${x.it.sds ? `${x.it.hazcards?.length ? '<br>' : ''}<a href="${esc(x.it.sds)}" target="_blank" rel="noopener">SDS ↗</a>` : ''}${x.it.storageGroup ? '<br><span class="muted small">group ' + esc(x.it.storageGroup) + '</span>' : ''}</td></tr>`).join('')}

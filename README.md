@@ -133,6 +133,14 @@ Then open **People & roles** and click **+ Add person** for each member of staff
 2. Copy the folder ID (the part of the folder’s URL after `/folders/`) into the `HAZCARD_FOLDER_ID` script property.
 3. In Apps Script run **`linkHazcards`**. The Hazcards tab now holds a preview link for each card. Staff signed in to the school Google account see the card itself in the pop-up.
 
+**Other names of chemicals.** `data/alternative-names.csv` holds the *Alternative name(s)* column of the school inventory (110 chemicals, e.g. propanone = acetone, Epsom salts = magnesium sulfate). To load it:
+
+1. In the Sheet, **File → Import → Upload** `alternative-names.csv` → **Insert new sheet(s)**, and rename the tab **Alternative names**. (You can instead paste the *Name* and *Alternative name(s)* columns straight from the inventory spreadsheet.)
+2. In Apps Script run **`linkAltNames`**. Each row is matched by the chemical's id, or by its name. Names already typed into the app are kept; `linkAltNames(true)` replaces them. The log lists any names it could not find.
+3. Run **`linkSds`** again so it also searches the SDS folder by the other names.
+
+Teachers and technicians can then find a chemical by any of its names: in the inventory search, in the order form's *Type to search the inventory* box and when the AI import matches an AI's list. The prep sheet shows *also called …* under each chemical. Technicians can edit the names on each item (**More details → Other names**, separated by `;`).
+
 **Safety data sheets (SDS).** Every chemical should have its hazcard, its SDS, or both. To link the SDS files:
 
 1. Put the SDS PDFs in one folder in the **school** Google Drive (the account that owns the Apps Script must be able to open it), shared with the school only. Name each file after the chemical, e.g. `Sodium hydroxide.pdf`. A file that covers two names can list both, separated by a comma: `methanoic acid, formic acid.pdf`.

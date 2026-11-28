@@ -293,7 +293,7 @@ function form(el, q, editing, teacher, lesson) {
             <td>${k.fixed ? '<span class="muted small">teacher only</span>' : `<input class="num" type="number" min="0" step="any" value="${esc(k.perGroup)}" data-pg="${i}" aria-label="Per group">`}</td><td class="strong">${esc(k.qty)}</td><td>${free}</td>
             <td><button type="button" class="icon-btn" data-rm="${i}" aria-label="Remove ${esc(k.name)}">×</button></td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">No items yet — add the equipment and chemicals you need.</td></tr>'}
           </tbody></table></div>
-          <div class="add-row"><input id="addItem" list="invList" placeholder="Type to search the inventory…" aria-label="Equipment to add"><datalist id="invList">${db.inventory.map(i => `<option value="${esc(i.name + (i.size ? ' · ' + i.size : '') + ' [' + i.id + ']')}">`).join('')}</datalist><button type="button" class="btn" id="addBtn">+ Add equipment</button></div>
+          <div class="add-row"><input id="addItem" list="invList" placeholder="Type to search the inventory…" aria-label="Equipment to add"><datalist id="invList">${db.inventory.map(i => `<option value="${esc(i.name + (i.altNames ? ' (' + i.altNames + ')' : '') + (i.size ? ' · ' + i.size : '') + ' [' + i.id + ']')}">`).join('')}</datalist><button type="button" class="btn" id="addBtn">+ Add equipment</button></div>
           <label class="fld">Notes for the technicians<textarea id="notes" rows="2">${esc(S.notes)}</textarea></label>
         </section>
 
