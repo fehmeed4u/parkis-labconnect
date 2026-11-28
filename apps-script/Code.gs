@@ -26,7 +26,7 @@ var TABLES = {
   Inventory:    ['id', 'list', 'category', 'name', 'size', 'rooms', 'storage', 'min', 'orderRequired', 'supplier', 'ref', 'hazcards', 'icon', 'photo', 'shelfLife', 'storageGroup', 'notes', 'orderApproved', 'sds', 'sdsNote', 'altNames'],
   InventoryLog: ['at', 'by', 'itemId', 'item', 'room', 'change', 'reason'],
   Hazcards:     ['code', 'title', 'url'],
-  Library:      ['id', 'title', 'grade', 'subject', 'course', 'topic', 'kit', 'prepMinutes', 'method', 'risks', 'prepNotes'],
+  Library:      ['id', 'title', 'grade', 'subject', 'course', 'topic', 'kit', 'prepMinutes', 'method', 'risks', 'prepNotes', 'sets', 'sources'],
   Recipes:      ['number', 'title', 'names', 'hazcards', 'solutes', 'text'],        // from the school's CLEAPSS Recipe Sheets (import file)
   RiskCards:    ['code', 'title', 'signal', 'hazards', 'controls', 'emergency', 'disposal'], // from the school's CLEAPSS Hazcards (import file)
   Requests:     ['id', 'createdAt', 'updatedAt', 'teacherEmail', 'teacher', 'class', 'grade', 'subject', 'date', 'start', 'end', 'room', 'timetabledRoom', 'practicalId', 'title', 'sets', 'kit', 'notes', 'status', 'prep', 'late', 'lateChoice', 'swapWith', 'offer', 'techNotes', 'rating', 'feedback', 'history', 'query', 'reply', 'hodApproved', 'flag', 'postponedFrom', 'method', 'risks', 'activities', 'prepNotes']

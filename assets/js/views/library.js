@@ -71,10 +71,14 @@ export async function render(el, _rest, params = new URLSearchParams()) {
     const v = await promptBox(p.id ? 'Edit practical' : 'New practical', [
       { name: 'title', label: 'Name', value: p.title }, { name: 'grade', label: 'Grade (e.g. 11, or 11-12 for both)', value: p.grade }, { name: 'subject', label: 'Subject', value: p.subject },
       { name: 'course', label: 'Course (IGCSE, A Level, IB…)', value: p.course }, { name: 'topic', label: 'Topic', value: p.topic },
-      { name: 'prepMinutes', label: 'Prep time (minutes)', type: 'number', value: p.prepMinutes }, { name: 'method', label: 'Method sheet link', value: p.method }]);
-    if (!v) return; await call('upsert', { table: 'Library', row: { ...p, ...v, grade: Number(v.grade) || String(v.grade || '').trim(), kit: p.kit || [] } }); toast('Saved'); reload();
+      { name: 'sets', label: 'Usual number of sets', type: 'number', value: p.sets }, { name: 'prepMinutes', label: 'Prep time (minutes)', type: 'number', value: p.prepMinutes },
+      { name: 'method', label: 'Method (numbered steps, or a link to the method sheet)', type: 'textarea', rows: 8, value: p.method },
+      { name: 'prepNotes', label: 'Technician notes (solutions, set-up)', type: 'textarea', rows: 3, value: p.prepNotes }]);
+    if (!v) return; await call('upsert', { table: 'Library', row: { ...p, ...v, grade: Number(v.grade) || String(v.grade || '').trim(), sets: Number(v.sets) || '', kit: p.kit || [] } }); toast('Saved'); reload();
   }
 }
+
+const isLink = v => /^https?:\/\/\S+$/.test(String(v || '').trim());
 
 function detail(p, runs, canEdit, orderCtx) {
   const cards = hazcardsFor(db, p.kit); const today = iso(new Date());
@@ -82,11 +86,14 @@ function detail(p, runs, canEdit, orderCtx) {
   const day = d => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   return `<aside class="card side-col sticky pane-r" style="gap:12px">
     <div><button class="btn pri block" id="useP">${orderCtx ? 'Use for this lesson' : 'Use for my order'}</button>
-    <p class="muted xs" style="margin-top:4px">Fills in the kit and sets from last time. You only pick the class, date and lab.</p></div>
+    <p class="muted xs" style="margin-top:4px">Fills in the kit, method and sets (from the last time, or the usual number). You only pick the class, date and lab.</p></div>
     <div><div class="muted xs" style="font-weight:500">${[gradeLabel(p), p.subject, p.course].filter(Boolean).map(esc).join(' · ')}</div><h2 class="h2" style="font-size:16px;margin-top:4px">${esc(p.title)}</h2>${p.topic ? `<div class="muted">Topic: ${esc(p.topic)}</div>` : ''}</div>
-    <div><h3 class="h3">Per group</h3><ul class="rules" style="line-height:1.6">${p.kit.map(k => `<li>${esc(k.perGroup)} × ${esc(k.name)}</li>`).join('') || `<li class="muted">No kit listed yet — see the method sheet. List the kit when you order, and it is saved here for next time.</li>`}</ul></div>
+    <div><h3 class="h3">Per group${p.sets ? ` <span class="muted small" style="font-weight:400">· usually ${esc(p.sets)} sets</span>` : ''}</h3><ul class="rules" style="line-height:1.6">${p.kit.filter(k => !k.fixed).map(k => `<li>${esc(k.perGroup)} × ${esc(k.name)}${k.conc ? ` <span class="muted">(${esc(k.conc)})</span>` : ''}</li>`).join('') || (p.kit.length ? '' : `<li class="muted">No kit listed yet — see the method sheet. List the kit when you order, and it is saved here for next time.</li>`)}</ul>
+    ${p.kit.some(k => k.fixed) ? `<h3 class="h3" style="margin-top:10px">For the class</h3><ul class="rules" style="line-height:1.6">${p.kit.filter(k => k.fixed).map(k => `<li>${esc(k.perGroup)} × ${esc(k.name)}</li>`).join('')}</ul>` : ''}</div>
+    ${p.method && !isLink(p.method) ? `<details><summary class="h3" style="cursor:pointer">Method</summary><div style="white-space:pre-wrap;margin-top:6px">${esc(p.method)}</div></details>` : ''}
+    ${p.prepNotes ? `<details><summary class="h3" style="cursor:pointer">Technician notes</summary><div style="white-space:pre-wrap;margin-top:6px">${esc(p.prepNotes)}</div></details>` : ''}
     ${cards.length ? `<div class="chips"><span class="kicker danger">Hazcards</span>${cards.map(c => `<button class="chip hz" data-hz="${esc(c.code)}">${esc(c.code)}${c.title ? ' · ' + esc(c.title) : ''}</button>`).join('')}</div>` : ''}
     <div><h3 class="h3">Done before</h3>${runs.length ? `<ul class="hist">${runs.slice(0, 8).map(r => `<li><b>${esc(day(r.date))}</b><span class="muted">${esc(r.class)} · ${esc(r.teacher)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} sets</span>${badge(r)}</li>`).join('')}</ul>` : '<p class="muted small">Not run yet.</p>'}</div>
-    ${p.method || canEdit ? `<div class="links">${p.method ? `<a href="${esc(p.method)}" target="_blank" rel="noopener">Method sheet</a>` : ''}${p.method && canEdit ? '<span class="sep"></span>' : ''}${canEdit ? '<button class="linkbtn" id="editP">Edit</button><span class="sep"></span><button class="linkbtn danger" id="delP">Remove</button>' : ''}</div>` : ''}
+    ${isLink(p.method) || canEdit ? `<div class="links">${isLink(p.method) ? `<a href="${esc(p.method)}" target="_blank" rel="noopener">Method sheet</a>` : ''}${isLink(p.method) && canEdit ? '<span class="sep"></span>' : ''}${canEdit ? '<button class="linkbtn" id="editP">Edit</button><span class="sep"></span><button class="linkbtn danger" id="delP">Remove</button>' : ''}</div>` : ''}
   </aside>`;
 }
