@@ -581,6 +581,25 @@ button.stat.on { border-color: var(--pri); background: var(--pri-soft); }
 .steps-nav span.done { color: var(--pri-text); }
 .tt .gh.today { color: var(--pri-text); box-shadow: inset 0 -2px 0 var(--pri); }
 .gc.off { background: repeating-linear-gradient(135deg, transparent 0 6px, var(--surface-2) 6px 12px); }
+.cal-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cal-bar .btn.small { min-width: 28px; font-size: 14px; }
+.cal-title { font-size: 14px; margin-left: 6px; }
+.seg a { display: inline-flex; align-items: center; padding: 0 12px; height: 28px; font-size: 12px; font-weight: 500; color: var(--ink-2); text-decoration: none; }
+.seg a + a { border-left: 1px solid var(--line); }
+.seg a.on { background: var(--pri-soft); color: var(--pri-text); font-weight: 600; }
+.month { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); min-width: 600px; }
+.month .mh { padding: 6px 8px; font-size: 12px; font-weight: 600; background: var(--head); border-bottom: 1px solid var(--line); border-left: 1px solid var(--line); }
+.month .mh:first-child, .month .mday:nth-child(5n + 1) { border-left: 0; }
+.mday { min-height: 92px; padding: 4px; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 2px; }
+.mday.out { background: var(--surface-2); }
+.mday.out .mnum { color: var(--muted); }
+.mday.off { background: repeating-linear-gradient(135deg, transparent 0 6px, var(--surface-2) 6px 12px); }
+.mday.today .mnum { color: var(--pri-text); font-weight: 700; }
+.mnum { font-size: 11.5px; font-weight: 600; padding: 0 2px 2px; color: var(--ink-2); }
+.lsn.mini { margin: 0; padding: 2px 6px; }
+.lsn.mini.ok, .lsn.mini.late { padding-left: 8px; }
+.lsn.mini .lt { font-size: 11px; }
+.lsn.mini .ls { font-size: 10.5px; }
 .week-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; font-weight: 600; background: var(--surface); }
 .lsn { margin: 1px 2px; border: 0; border-radius: 4px; padding: 3px 6px; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 0; overflow: hidden; z-index: 1; font: inherit; font-size: 11px; line-height: 1.3; min-width: 0; }
 /* lessons with nothing ordered: white with a stripe (green = book on time, red = deadline passed);
