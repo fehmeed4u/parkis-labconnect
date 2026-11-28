@@ -94,3 +94,22 @@ const ICONS = {
   arrow: '<path d="M6 3.5L10.5 8 6 12.5"/>'
 };
 export const icon = (name, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+
+/* ---------------- show / hide password ----------------
+   Every password box gets a "Show" button inside it, so people can check what they typed (handy when choosing a new
+   password). Done once here for every page and pop-up, including any password box added later. */
+function addPasswordToggles(root) {
+  root.querySelectorAll('input[type=password]:not([data-pw])').forEach(inp => {
+    inp.dataset.pw = '1';
+    const wrap = document.createElement('span'); wrap.className = 'pw';
+    inp.replaceWith(wrap); wrap.appendChild(inp);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'pw-eye';
+    const set = show => { inp.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-pressed', String(show)); b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); };
+    set(false);
+    b.onclick = () => { const pos = inp.selectionStart; set(inp.type === 'password'); inp.focus(); try { inp.setSelectionRange(pos, pos); } catch (e) {} };
+    wrap.appendChild(b);
+  });
+}
+// Hide every password again when its form is sent, so the browser saves it as a password.
+document.addEventListener('submit', e => e.target.querySelectorAll?.('input[data-pw]').forEach(i => { i.type = 'password'; const b = i.parentElement.querySelector('.pw-eye'); if (b) { b.textContent = 'Show'; b.setAttribute('aria-pressed', 'false'); b.setAttribute('aria-label', 'Show password'); } }), true);
+new MutationObserver(() => addPasswordToggles(document)).observe(document.documentElement, { childList: true, subtree: true });
