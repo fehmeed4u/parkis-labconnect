@@ -422,12 +422,27 @@ function sheet_(name) {
   else if (sh.getLastColumn() < TABLES[name].length) sh.getRange(1, 1, 1, TABLES[name].length).setValues([TABLES[name]]).setFontWeight('bold'); // new columns added in an update
   return sh;
 }
-function enc_(h, v) { if (v === undefined || v === null) return ''; return JSON_COLS[h] || typeof v === 'object' ? JSON.stringify(v) : v; }
+function enc_(h, v) {
+  if (v === undefined || v === null) return '';
+  // Keep these as text, or the Sheet turns them into dates: a grade range ("11-12"),
+  // a time ("08:30") or a day ("2026-11-30").
+  if (typeof v === 'string' && !JSON_COLS[h] && (/^\s*\d{1,2}:\d{2}(:\d{2})?\s*$/.test(v) || /^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ||
+      (h === 'grade' && /^\s*\d{1,2}\s*[-–\/,&]/.test(v)))) return "'" + v.trim();
+  return JSON_COLS[h] || typeof v === 'object' ? JSON.stringify(v) : v;
+}
 function dec_(h, v) {
   if (JSON_COLS[h] && typeof v === 'string' && v !== '' && /^[\[{"]/.test(v)) { try { return JSON.parse(v); } catch (e) { return v; } }
-  if (v instanceof Date) return v.toISOString();
+  if (v instanceof Date) {
+    // the Sheet already turned a time or a day into a date: give back what was typed
+    if (v.getFullYear() < 1901) return Utilities.formatDate(v, sheetTz_(), 'HH:mm');
+    if (DAY_COLS[h]) return Utilities.formatDate(v, sheetTz_(), 'yyyy-MM-dd');
+    return v.toISOString();
+  }
   return v;
 }
+var DAY_COLS = { date: 1 };
+var TZ_ = null;
+function sheetTz_() { return TZ_ || (TZ_ = SpreadsheetApp.getActive().getSpreadsheetTimeZone() || Session.getScriptTimeZone()); }
 function read_(name) {
   var sh = sheet_(name); var data = sh.getDataRange().getValues(); var head = data[0];
   var out = [];

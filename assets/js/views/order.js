@@ -1,5 +1,5 @@
 import { db, session, call } from '../store.js';
-import { esc, nice, niceLong, deadline, isLate, isLabRoom, labStatus, clashes, unavailable, hazcardsFor, roomName, totalStock, iso, addDays, monday, min, fmtMin, dayCode, isSchoolDay, parse, DAYS, gradeOf, lightOf, LIGHTS, teacherCanEdit, canPostpone } from '../logic.js';
+import { esc, nice, niceLong, deadline, isLate, isLabRoom, labStatus, clashes, unavailable, hazcardsFor, roomName, totalStock, iso, addDays, monday, min, fmtMin, dayCode, isSchoolDay, parse, DAYS, gradeOf, gradesOf, lightOf, LIGHTS, teacherCanEdit, canPostpone } from '../logic.js';
 import { $, modal, closeModal, toast, hazcardModal, statusChip } from '../ui.js';
 import { go, reload } from '../app.js';
 import * as aiImport from './aiimport.js';
@@ -52,9 +52,9 @@ export async function render(el, _rest, q) {
 /* ---------------- step 1: the teacher's timetable ---------------- */
 function pickLesson(el, q, teacher, editing, moving) {
   const me = session.me; const isTeacher = me.role === 'teacher';
-  const w = Math.max(0, Math.min(MAX_WEEKS, Number(q.get('w')) || 0));
-  const mon = addDays(monday(new Date()), w * 7); const today = iso(new Date()); const now = new Date();
-  const dates = DAYS.map((_, i) => iso(addDays(mon, i)));
+  // every week is shown, one under the other: this week first, then the next ones
+  const shown = Math.max(1, Math.min(MAX_WEEKS + 1, Number(q.get('weeks')) || 4));
+  const today = iso(new Date()); const now = new Date();
   const teachers = [...new Set(db.timetable.map(t => t.teacher))].sort();
   const mine = db.timetable.filter(t => t.teacher === teacher);
   const dayStart = Math.min(min(db.settings.dayStart || '08:30'), ...mine.map(t => min(t.start)));
@@ -63,8 +63,11 @@ function pickLesson(el, q, teacher, editing, moving) {
   const slotOf = s => Math.max(0, Math.round((min(s) - dayStart) / 30));
   const practical = q.get('practical') ? db.library.find(p => p.id === q.get('practical')) : null;
 
+  const weekGrid = w => {
+  const mon = addDays(monday(new Date()), w * 7);
+  const dates = DAYS.map((_, i) => iso(addDays(mon, i)));
   let grid = '';
-  if (teacher) {
+  {
     grid += `<div class="wgrid tt" style="grid-template-columns:60px repeat(5,minmax(150px,1fr));grid-template-rows:40px repeat(${slots.length},44px);min-width:${60 + 5 * 150}px">`;
     grid += `<div class="gh" style="grid-column:1;grid-row:1"></div>`;
     dates.forEach((d, i) => { const hol = !isSchoolDay(parse(d), db.settings.holidays); grid += `<div class="gh${d === today ? ' today' : ''}" style="grid-column:${2 + i};grid-row:1">${DAYS[i]} ${parse(d).getDate()} ${parse(d).toLocaleDateString('en-GB', { month: 'short' })}${hol ? ' · holiday' : ''}</div>`; });
@@ -91,6 +94,12 @@ function pickLesson(el, q, teacher, editing, moving) {
     grid += '</div>';
   }
   const weekLabel = `${mon.getDate()} ${mon.toLocaleDateString('en-GB', { month: 'short' })} – ${addDays(mon, 4).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+  return `<section class="card flush week-block">
+      <div class="row between wrap" style="padding:12px 16px;border-bottom:1px solid var(--line)">
+        <strong style="font-size:16px">${w === 0 ? 'This week' : w === 1 ? 'Next week' : 'Week of'} · ${esc(weekLabel)}</strong>
+      </div>
+      <div class="scroll">${grid}</div></section>`;
+  };
 
   el.innerHTML = `<div class="page">
     <div><a href="${editing ? '#/order?id=' + esc(editing.id) : '#/' + (isTeacher ? 'home' : 'requests')}" class="small">‹ ${editing ? 'Back to the order' : isTeacher ? 'Back to home' : 'Back to the queue'}</a>
@@ -100,17 +109,12 @@ function pickLesson(el, q, teacher, editing, moving) {
       : `${isTeacher ? 'Your timetable' : 'Their timetable'}. Technicians need ${db.settings.leadDays} working days, so book by the end of the day shown on each lesson.`}</p></div>
     ${practical ? `<div class="note ok">Ordering <strong>${esc(practical.title)}</strong> from the library — now pick the lesson. <a href="${orderLink(q, { practical: null })}">Not this one</a></div>` : ''}
     ${!isTeacher && !moving ? `<label class="fld" style="max-width:320px">Teacher<select id="teacher"><option value="">Choose a teacher…</option>${teachers.map(t => `<option${t === teacher ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>` : ''}
-    ${teacher ? `<section class="card flush">
-      <div class="row between wrap" style="padding:14px 16px;border-bottom:1px solid var(--line)">
-        <div class="row gap"><a class="icon-btn b" href="${orderLink(q, { w: w - 1 || null })}" aria-label="Previous week"${w === 0 ? ' aria-disabled="true" tabindex="-1" style="pointer-events:none;opacity:.4"' : ''}>‹</a>
-          <strong style="font-size:16px;min-width:150px;text-align:center">${esc(weekLabel)}</strong>
-          <a class="icon-btn b" href="${orderLink(q, { w: w + 1 })}" aria-label="Next week"${w >= MAX_WEEKS ? ' aria-disabled="true" tabindex="-1" style="pointer-events:none;opacity:.4"' : ''}>›</a>
-          ${w ? `<a class="small" href="${orderLink(q, { w: null })}">This week</a>` : ''}</div>
-        <div class="tt-legend">${moving ? '<span><i class="ok"></i>You can move it here</span><span><i class="past"></i>Earlier or already started</span>'
-          : '<span><i class="ok"></i>Can book on time</span><span><i class="late"></i>Deadline passed — late request</span><span><i class="past"></i>Already started</span><span class="sep" aria-hidden="true"></span><span class="lg">Ordered:</span><span><i class="pw"></i>Waiting for approval</span><span><i class="p0"></i>Not started</span><span><i class="p1"></i>In prep</span><span><i class="p2"></i>Ready</span>'}</div>
-      </div>
-      <div class="scroll">${mine.length ? grid : '<p class="empty">No lessons on the timetable for this teacher.</p>'}</div></section>
-      <p class="muted small">Lessons with a red stripe are past the booking deadline. You can still request them — they show in blue until the technicians approve them.</p>` : ''}
+    ${teacher ? (mine.length ? `<div class="tt-legend">${moving ? '<span><i class="ok"></i>You can move it here</span><span><i class="past"></i>Earlier or already started</span>'
+        : '<span><i class="ok"></i>Can book on time</span><span><i class="late"></i>Deadline passed — late request</span><span><i class="past"></i>Already started</span><span class="sep" aria-hidden="true"></span><span class="lg">Ordered:</span><span><i class="pw"></i>Waiting for approval</span><span><i class="p0"></i>Not started</span><span><i class="p1"></i>In prep</span><span><i class="p2"></i>Ready</span>'}</div>
+      ${moving ? '' : '<p class="muted small" style="margin-top:-8px">Lessons with a red stripe are past the booking deadline. You can still request them — they show in blue until the technicians approve them.</p>'}
+      ${Array.from({ length: shown }, (_, w) => weekGrid(w)).join('')}
+      ${shown <= MAX_WEEKS ? `<div><a class="btn" href="${orderLink(q, { weeks: Math.min(MAX_WEEKS + 1, shown + 4) })}">Show more weeks</a></div>` : ''}`
+      : '<p class="empty">No lessons on the timetable for this teacher.</p>') : ''}
   </div>`;
 
   const t = $('#teacher'); if (t) t.onchange = () => go(orderLink(q, { teacher: t.value, date: null, start: null }));
@@ -181,7 +185,7 @@ function fromAI(el, q, teacher, l) {
 /* ---------------- step 2: how to start ---------------- */
 function chooseStart(el, q, teacher, l) {
   const late = isLate(l.date, db.settings); const orders = ordersFor(teacher, l.date, l.start);
-  const libForGrade = db.library.filter(p => Number(p.grade) === Number(l.grade || gradeOf(l.class))).length;
+  const libForGrade = db.library.filter(p => gradesOf(p).includes(Number(l.grade || gradeOf(l.class)))).length;
   el.innerHTML = `<div class="page" style="max-width:1100px">
     <div><a href="${orderLink(q, { date: null, start: null, mode: null })}" class="small">‹ Pick another lesson</a>
     <div class="steps-nav" aria-label="Steps"><span class="done">1 · Pick a lesson</span><span class="on">2 · How to start</span><span>3 · Request</span></div>

@@ -256,6 +256,19 @@ button.stat { cursor: pointer; } button.stat:hover { border-color: var(--line-2)
 .add-row input { flex: 1 1 260px; }
 
 /* ---------- library ---------- */
+.lib-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.lib-filters .fld { flex: 0 1 200px; min-width: 150px; }
+.lib-filters .fld.grow { flex: 1 1 260px; }
+.plist { flex: 999 1 520px; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; align-self: flex-start; }
+.plist-head { padding: 10px 16px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.prow { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 11px 16px; cursor: pointer; }
+.prow:last-child { border-bottom: 0; }
+.prow:hover { background: var(--hover); }
+.prow.on { background: var(--pri-soft, var(--hover)); box-shadow: inset 3px 0 0 var(--pri); }
+.prow .pt { font-weight: 600; font-size: 14px; }
+.prow .pm { grid-column: 1; font-size: 12px; color: var(--muted); }
+.prow .pk { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.prow .pk.none { color: var(--muted); font-style: italic; }
 .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; flex: 999 1 560px; min-width: 0; align-content: start; }
 .pcard { text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-height: 130px; }
 .pcard:hover { border-color: var(--line-2); }
