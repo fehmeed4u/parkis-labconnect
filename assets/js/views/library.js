@@ -106,9 +106,9 @@ function detail(p, runs, canEdit, orderCtx) {
     ${cards.length ? `<div class="chips"><span class="kicker danger" style="margin-right:4px">Hazcards</span>${cards.map(c => `<button class="chip hz" data-hz="${esc(c.code)}">${esc(c.code)}${c.title ? ' · ' + esc(c.title) : ''}</button>`).join('')}</div>` : ''}
     <div class="lib-cols">
       <section><h3 class="h3">Per group${p.sets ? ` <span class="muted small" style="font-weight:400">· usually ${esc(p.sets)} sets</span>` : ''}</h3>
-        ${perGroup.length ? `<table class="tbl boxed"><tbody>${perGroup.map(k => `<tr><td class="num" style="width:1%;white-space:nowrap"><strong>${esc(k.perGroup)} ×</strong></td><td>${esc(k.name)}${k.conc ? ` <span class="muted">(${esc(k.conc)})</span>` : ''}</td></tr>`).join('')}</tbody></table>`
+        ${perGroup.length ? `<div class="kit-tags">${perGroup.map(k => `<span class="kit-tag"><b>${esc(k.perGroup)}×</b> ${esc(k.name)}${k.conc ? ` <span class="muted">(${esc(k.conc)})</span>` : ''}</span>`).join('')}</div>`
           : `<p class="muted small">${p.kit.length ? 'Nothing per group.' : 'No kit listed yet — see the method sheet. List the kit when you order, and it is saved here for next time.'}</p>`}
-        ${forClass.length ? `<h3 class="h3" style="margin-top:12px">For the class</h3><table class="tbl boxed"><tbody>${forClass.map(k => `<tr><td class="num" style="width:1%;white-space:nowrap"><strong>${esc(k.perGroup)} ×</strong></td><td>${esc(k.name)}</td></tr>`).join('')}</tbody></table>` : ''}</section>
+        ${forClass.length ? `<h3 class="h3" style="margin-top:12px">For the class</h3><div class="kit-tags">${forClass.map(k => `<span class="kit-tag"><b>${esc(k.perGroup)}×</b> ${esc(k.name)}</span>`).join('')}</div>` : ''}</section>
       <section>${p.method && !isLink(p.method) ? `<h3 class="h3">Method</h3><div class="lib-method">${esc(p.method)}</div>` : ''}
         <h3 class="h3"${p.method && !isLink(p.method) ? ' style="margin-top:14px"' : ''}>Done before</h3>${runs.length ? `<ul class="hist">${runs.slice(0, 8).map(r => `<li><b>${esc(day(r.date))}</b><span class="muted">${esc(r.class)} · ${esc(r.teacher)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} sets</span>${badge(r)}</li>`).join('')}</ul>` : '<p class="muted small">Not run yet.</p>'}</section>
     </div>

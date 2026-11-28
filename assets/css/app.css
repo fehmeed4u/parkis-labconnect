@@ -324,6 +324,9 @@ button.stat.on { border-color: var(--pri); background: var(--pri-soft); }
 .lib-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 .pop-wrap { position: relative; display: inline-flex; }
 .popover { position: absolute; top: calc(100% + 6px); right: 0; z-index: 45; width: min(360px, 80vw); max-height: 50vh; overflow: auto; background: var(--surface); border: 1px solid var(--line-2); border-radius: 6px; box-shadow: 0 12px 28px rgba(16, 24, 40, .18); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.kit-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.kit-tag { display: inline-block; max-width: 100%; border: 1px solid var(--line-2); background: var(--surface-2); border-radius: 4px; padding: 2px 8px; font-size: 12.5px; line-height: 1.45; }
+.kit-tag b { color: var(--pri-text); font-weight: 700; margin-right: 2px; }
 .lib-method { white-space: pre-wrap; line-height: 1.6; background: var(--head); border: 1px solid var(--line-soft); border-radius: 5px; padding: 10px 12px; }
 @media (max-width: 1100px) { .lib-cols { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 800px) { .lib-split { grid-template-columns: minmax(0, 1fr); } .lib-split .plist { position: static; max-height: 360px; } }
