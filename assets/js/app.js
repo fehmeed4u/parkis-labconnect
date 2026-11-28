@@ -1,5 +1,5 @@
 import { CONFIG } from './config.js';
-import { db, session, refresh, isDemo, login, logout, changePassword } from './store.js';
+import { db, session, refresh, isDemo, login, logout, changePassword, loadCached, savedLocally, clearCache } from './store.js';
 import { esc } from './logic.js';
 import { $, toast, modal, closeModal, icon } from './ui.js';
 import * as home from './views/home.js';
@@ -178,14 +178,46 @@ function passwordDialog() {
 }
 const loadScript = src => new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
 
+const signedOutBy = e => /token|not_signed|session_expired|not_registered/.test(e.message);
+function signOutHere() { Object.assign(session, { me: null, token: null, idToken: null }); clearCache(); saveSession(); go('#/login'); return render(); }
+
 async function boot(loaded) {
-  try { if (!loaded) await refresh(); }
+  // Data this person loaded last time shows straight away; fresh data then loads quietly behind it.
+  const cached = !loaded && loadCached();
+  try { if (!loaded && !cached) await refresh(); }
   catch (e) {
     if (/must_change_password/.test(e.message)) return firstPasswordView();
-    if (/token|not_signed|session_expired|not_registered/.test(e.message)) { Object.assign(session, { me: null, token: null, idToken: null }); saveSession(); go('#/login'); return render(); }
+    if (signedOutBy(e)) return signOutHere();
     toast('Could not load data: ' + e.message, 'bad'); }
   applyTheme();
   if (!location.hash || location.hash === '#/login') go('#/' + home_()); else render();
+  if (cached) refreshInBackground();
+}
+
+/* Fresh data loaded behind a page already on screen. The page is drawn again only if something changed and the
+   person isn't in the middle of something (typing, a pop-up open, or the order form). */
+let bgRunning = null, bgAgain = false;
+function refreshInBackground() {
+  if (bgRunning) { bgAgain = true; return bgRunning; }
+  bgRunning = (async () => {
+    try {
+      const changed = await refresh({ quiet: true });
+      if (changed && session.me && safeToRedraw()) await render();
+    } catch (e) {
+      if (/must_change_password/.test(e.message)) firstPasswordView();
+      else if (signedOutBy(e)) signOutHere();
+      else console.warn('Background refresh failed:', e.message);
+    } finally {
+      bgRunning = null;
+      if (bgAgain) { bgAgain = false; refreshInBackground(); }
+    }
+  })();
+  return bgRunning;
+}
+function safeToRedraw() {
+  if (document.getElementById('overlay')) return false;
+  const a = document.activeElement; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return false;
+  return !/^#\/order\b/.test(location.hash);
 }
 
 export async function render() {
@@ -202,7 +234,12 @@ export async function render() {
 /** Open a page of the app in a new tab, still signed in. window.open (unlike a plain target=_blank link) keeps the
  *  opener, so the browser copies this tab's sessionStorage — where the sign-in lives — into the new tab. */
 export function openTab(hash) { const w = window.open(location.pathname + location.search + hash, '_blank'); if (!w) go(hash); }
-export async function reload() { await refresh(); await render(); }
+/** Show the page again after a save. The save is already in the tab's data, so the page updates at once and the
+ *  rest (history, logs, other people's changes) loads quietly behind it. */
+export async function reload() {
+  if (savedLocally()) { await render(); refreshInBackground(); return; }
+  await refresh(); await render();
+}
 
 window.addEventListener('hashchange', () => { closeModal(); render(); }); // a pop-up never outlives the page it was opened on
 (async () => {

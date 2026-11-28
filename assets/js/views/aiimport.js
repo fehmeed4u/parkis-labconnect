@@ -3,10 +3,45 @@
 import { parseVol } from '../chem.js';
 import { db, session } from '../store.js';
 import { esc, nice, roomName, isLabRoom, totalStock, min, gradeOf } from '../logic.js';
-import { toast } from '../ui.js';
+import { toast, download } from '../ui.js';
+
+/* ---------------- our inventory, for the AI ----------------
+   A file the teacher attaches to the AI chat (or pastes in), so the AI plans with what we actually have. It is made
+   fresh from the inventory each time, and holds only what an AI needs: no rooms, cabinets, suppliers or prices. */
+const AI_SKIP_LISTS = ['Documents', 'Stationery']; // pens and paper: the prompt already says not to list them
+export function inventoryForAI() {
+  const rows = db.inventory.filter(i => totalStock(i) > 0 && !AI_SKIP_LISTS.includes(i.list));
+  const group = {};
+  rows.forEach(i => {
+    // one short line per item: "Beaker 250 mL ×30", "Propanone (also called: acetone)"
+    const also = String(i.altNames || '').split(/\s*;\s*/).filter(Boolean);
+    const line = i.name + (i.size ? ' ' + i.size : '') + (also.length ? ` (also called: ${also.join(', ')})` : '')
+      + (i.list === 'Chemicals' ? '' : ' ×' + totalStock(i)); // for chemicals only that we have it matters
+    (group[i.list || 'Other'] = group[i.list || 'Other'] || []).push(line);
+  });
+  Object.values(group).forEach(a => a.sort((x, y) => x.localeCompare(y)));
+  const order = ['Equipment', 'Chemicals', 'Consumables', 'Microscope slides', 'Models'];
+  const lists = Object.keys(group).sort((a, b) => ((order.indexOf(a) + 1) || 99) - ((order.indexOf(b) + 1) || 99) || a.localeCompare(b));
+  const body = lists.map(k => `  ${JSON.stringify(k)}: [\n${group[k].map(o => '    ' + JSON.stringify(o)).join(',\n')}\n  ]`).join(',\n');
+  return `{
+  "about": "Everything in stock in our school science prep room on ${new Date().toISOString().slice(0, 10)}. '×N' is how many we have in total.",
+${body}
+}
+`;
+}
+const inventoryFileName = () => `lab-inventory-${new Date().toISOString().slice(0, 10)}.json`;
+
+const INVENTORY_RULES = where => `
+USE ONLY WHAT WE HAVE
+Our prep-room inventory is ${where === 'pasted' ? 'pasted at the very end of this message, after "OUR INVENTORY"' : 'in the attached file (lab-inventory….json)'}. Read it before you plan.
+- Use ONLY equipment, chemicals and consumables that are in it. Write each name exactly as it is written there, with its size if it has one.
+- For equipment, "×N" is how many we own in total: never ask for more than that across all groups. Share between groups, or use fewer groups, if needed.
+- If something is not in it, use the closest thing that is (e.g. a different size of beaker, a similar chemical).
+- Only if the practical truly cannot work without it, still list it and add "missing": true to that item, so the technicians know to order it.
+`;
 
 /* ---------------- the prompts ---------------- */
-export function buildPrompt(l, sets) {
+export function buildPrompt(l, sets, inv = '') {
   const mins = min(l.end) - min(l.start);
   return `You are helping a secondary-school science teacher plan a practical for the school's lab technicians to prepare.
 
@@ -17,7 +52,7 @@ LESSON
 
 SOURCE
 Use the document or idea I give you below (a worksheet, PDF, web page or description). Keep its learning aim.
-
+${inv ? INVENTORY_RULES(inv) : ''}
 PLAN IT THE MINIMALIST WAY
 - Use as few different pieces of equipment and as few chemicals as possible.
 - Use the smallest amounts and lowest concentrations that still work reliably at normal class scale.
@@ -60,6 +95,8 @@ Reply with ONLY one JSON code block, exactly in this shape (no other text):
 Here is the source:
 `;
 }
+/** The prompt with the inventory pasted in, for AI chats that can't take a file. The source goes before the list. */
+const withInventory = p => p.replace(/Here is the source:\n$/, 'Here is the source (my idea, worksheet or PDF), then OUR INVENTORY:\n\n[ put your idea here, or attach the file ]\n\nOUR INVENTORY\n') + inventoryForAI();
 
 function rethinkPrompt(rows, sets) {
   const missing = rows.filter(r => r.status === 'missing'), short = rows.filter(r => r.status === 'short');
@@ -72,7 +109,7 @@ We DO have:
 ${have.join('\n') || '- (none of the other items matched)'}
 ${similar.length ? `\nSimilar things we have that might replace the missing ones:\n${[...new Set(similar)].join('\n')}` : ''}
 
-Please revise the practical so it only uses what we have (or fewer groups / sharing between groups, for ${sets} groups), still minimalist and still doable at normal class scale. Reply again with ONLY the full JSON in exactly the same shape as before.`;
+Please revise the practical so it only uses what we have (check the inventory I gave you, if I gave you one), or uses fewer groups / sharing between groups, for ${sets} groups. Keep it minimalist and still doable at normal class scale. Reply again with ONLY the full JSON in exactly the same shape as before.`;
 }
 
 /* ---------------- reading the answer ---------------- */
@@ -169,7 +206,9 @@ const store = key => ({ get: () => { try { return sessionStorage.getItem('sp_ai_
 export function render(el, opts) {
   const { lesson: l, key } = opts; const saved = store(key);
   const st = { text: saved.get(), parsed: null, err: '', rows: [], sets: Number(new URLSearchParams(location.hash.split('?')[1] || '').get('sets')) || 6 };
-  const prompt = () => buildPrompt(l, st.sets);
+  let useInv = true; try { useInv = localStorage.getItem('sp_ai_inv') !== 'off'; } catch (e) {}
+  const prompt = () => buildPrompt(l, st.sets, useInv ? 'attached' : '');
+  const promptPasted = () => withInventory(buildPrompt(l, st.sets, 'pasted'));
   const invList = `<datalist id="aiInv">${db.inventory.map(i => `<option value="${esc(i.name + (i.altNames ? ' (' + i.altNames + ')' : '') + (i.size ? ' · ' + i.size : '') + ' [' + i.id + ']')}">`).join('')}</datalist>`;
 
   const parse = () => {
@@ -194,9 +233,11 @@ export function render(el, opts) {
       <section class="card stack">
         <div class="row between wrap"><h2 class="h2">1 · Copy this prompt into your AI chat</h2>
           <label class="row gap small" style="font-weight:600">Groups <input id="aiSets" type="number" min="1" max="40" value="${st.sets}" class="num" style="width:80px !important"></label></div>
-        <ol class="rules" style="line-height:1.7"><li>Copy the prompt and paste it into the AI chat you use.</li><li>Attach the PDF or worksheet, or paste the text or link, under the prompt.</li><li>Copy the AI’s whole answer and paste it in box 2 below.</li></ol>
+        <label class="row gap small" style="font-weight:600"><input type="checkbox" id="aiUseInv" ${useInv ? 'checked' : ''}> Only use what’s in our inventory (recommended)</label>
+        <ol class="rules" style="line-height:1.7"><li>Copy the prompt and paste it into the AI chat you use.</li>${useInv ? '<li><b>Download our inventory file and attach it</b> to the chat as well, so the AI only plans with kit we have.</li>' : ''}<li>Attach the PDF or worksheet, or paste the text or link, under the prompt.</li><li>Copy the AI’s whole answer and paste it in box 2 below.</li></ol>
         <textarea id="aiPrompt" rows="9" readonly style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:var(--head)">${esc(prompt())}</textarea>
-        <div class="row gap wrap"><button type="button" class="btn pri" id="copyPrompt">Copy prompt</button><span class="muted small">It asks for as little equipment and as few chemicals as possible, at normal class scale.</span></div>
+        <div class="row gap wrap"><button type="button" class="btn pri" id="copyPrompt">Copy prompt</button>${useInv ? `<button type="button" class="btn" id="dlInv">Download inventory file</button>` : ''}<span class="muted small">It asks for as little equipment and as few chemicals as possible, at normal class scale.</span></div>
+        ${useInv ? `<p class="muted small">Your AI chat can’t take files? <button type="button" class="linkbtn small" id="copyPasted">Copy the prompt with the inventory pasted in</button> instead (long: about ${Math.round(inventoryForAI().length / 1000)}k characters).</p>` : ''}
       </section>
 
       <section class="card stack">
@@ -240,6 +281,9 @@ export function render(el, opts) {
   const copy = async (text, what) => { try { await navigator.clipboard.writeText(text); toast(what + ' copied — paste it into your AI chat'); } catch (e) { toast('Select the text and copy it by hand', 'bad'); } };
   const wire = () => {
     el.querySelector('#copyPrompt').onclick = () => copy(prompt(), 'Prompt');
+    const inv = el.querySelector('#aiUseInv'); inv.onchange = () => { useInv = inv.checked; try { localStorage.setItem('sp_ai_inv', useInv ? 'on' : 'off'); } catch (e) {} draw(); };
+    const dl = el.querySelector('#dlInv'); if (dl) dl.onclick = () => { download(inventoryFileName(), inventoryForAI()); toast('Inventory file downloaded — attach it to your AI chat'); };
+    const cp = el.querySelector('#copyPasted'); if (cp) cp.onclick = () => copy(promptPasted(), 'Prompt with the inventory');
     el.querySelector('#aiSets').onchange = e => { st.sets = Math.max(1, Number(e.target.value) || 6); if (st.rows.length) assess(st.rows, st.sets); draw(); };
     const ans = el.querySelector('#aiAnswer'); ans.oninput = () => { st.text = ans.value; saved.set(st.text); };
     el.querySelector('#readIt').onclick = () => { st.text = ans.value; saved.set(st.text); parse(); draw(); el.querySelector(st.err ? '.note.bad' : '#aiReview')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };

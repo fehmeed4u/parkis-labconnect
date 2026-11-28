@@ -189,7 +189,13 @@ function demoAction(action, data) {
 /* ---------------- public API ---------------- */
 /** True until config.js has the Apps Script URL: data is then kept in this browser only. */
 export const isDemo = () => !CONFIG.API_URL;
-export function call(action, data = {}) { return busy(callRaw(action, data), labelFor(action)); }
+/** Run an action on the server. After a save, the change is also made to the data already in this tab, so the page
+ *  can show it at once instead of loading every table again (see reload() in app.js). */
+export async function call(action, data = {}) {
+  const out = await busy(callRaw(action, data), labelFor(action));
+  if (!isDemo() && !READS.includes(action)) { gen++; if (!patchLocal(action, data, out)) unpatched = true; saveCacheFromDb(); }
+  return out;
+}
 async function callRaw(action, data = {}) {
   if (isDemo()) {
     if (!demo) await loadDemo();
@@ -212,7 +218,7 @@ export async function login(username, password) {
   return out.me;
 }
 export async function changePassword(current, password) { const me = await call('changePassword', { current, password }); session.me = { ...session.me, ...me, mustChange: false }; return session.me; }
-export async function logout() { try { if (!isDemo() && session.token) await live('logout'); } catch (e) {} Object.assign(session, { me: null, token: null, idToken: null }); }
+export async function logout() { try { if (!isDemo() && session.token) await live('logout'); } catch (e) {} Object.assign(session, { me: null, token: null, idToken: null }); clearCache(); }
 export async function demoUsers() { if (!demo) await loadDemo(); return demo.users; }
 
 /* A Google Sheet turns "08:30" into a date (30 Dec 1899) and "2026-11-30" into a timestamp.
@@ -227,18 +233,111 @@ function asDay(v) {
   const d = new Date(v); return isNaN(d) ? v : d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 }
 
-export async function refresh() {
-  const d = await call('bootstrap');
+/* ---------------- quick loading ----------------
+   Loading every table from the Google Sheet takes a few seconds. So:
+   - the last data loaded is kept in this browser (one copy, for the person signed in) and shown straight away on the
+     next visit, while fresh data loads quietly behind it. It is wiped on sign-out and is never shown to anyone else;
+   - after a save, the change is made to the data in the tab (patchLocal), so the page updates at once. */
+const CACHE = 'sp_cache_v1', CACHE_HOURS = 12;
+const READS = ['bootstrap', 'exportTable', 'login', 'logout', 'changePassword'];
+let gen = 0;            // goes up with every save, so a load that started before a save is not allowed to undo it
+let unpatched = false;  // a save that could not be made locally: the next reload must load everything
+const who = () => session.me ? String(session.me.email || '').toLowerCase() + '|' + session.me.role : '';
+
+function saveCache(raw) {
+  if (isDemo() || !session.me) return;
+  try { localStorage.setItem(CACHE, JSON.stringify({ who: who(), at: Date.now(), data: raw })); }
+  catch (e) { clearCache(); } // full or blocked: just go without
+}
+function saveCacheFromDb() { saveCache(db); }
+export function clearCache() { try { localStorage.removeItem(CACHE); } catch (e) {} }
+/** Put the last data this person loaded into the tab. True if there was any. */
+export function loadCached() {
+  if (isDemo() || !session.me) return false;
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE) || 'null');
+    if (!c || c.who !== who() || !c.data || Date.now() - c.at > CACHE_HOURS * 3600e3) return false;
+    apply(c.data); return true;
+  } catch (e) { return false; }
+}
+/** True when every save since the last load was also made in the tab, so nothing needs loading before showing it. */
+export const savedLocally = () => !isDemo() && !unpatched;
+
+const normRequest = r => {
+  r.start = asTime(r.start); r.end = asTime(r.end); r.date = asDay(r.date);
+  r.kit = Array.isArray(r.kit) ? r.kit : []; r.prep = Number(r.prep) || 0; r.late = r.late === true || r.late === 'TRUE' || r.late === 'true';
+  return r;
+};
+const normItem = i => { i.rooms = i.rooms || {}; i.storage = i.storage || {}; i.hazcards = Array.isArray(i.hazcards) ? i.hazcards : []; return i; };
+const normPractical = p => { p.kit = Array.isArray(p.kit) ? p.kit : []; p.grade = Number(p.grade) || (p.grade == null ? '' : String(p.grade)); return p; };
+const sortRequests = () => db.requests.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || min(a.start) - min(b.start));
+function putRow(list, key, row) {
+  const i = list.findIndex(x => String(x[key]) === String(row[key]));
+  if (i >= 0) list[i] = { ...list[i], ...row }; else list.push(row);
+  return i >= 0 ? list[i] : row;
+}
+
+/** Make a save that the server has accepted in the data already in the tab. False if it can't be done here. */
+function patchLocal(action, data, out) {
+  try {
+    switch (action) {
+      case 'saveRequest': case 'updateRequest': case 'postponeRequest':
+        if (!out || !out.id) return false;
+        normRequest(putRow(db.requests, 'id', JSON.parse(JSON.stringify(out)))); sortRequests(); return true;
+      case 'adjustStock':
+        if (!out || !out.id) return false;
+        normItem(putRow(db.inventory, 'id', JSON.parse(JSON.stringify(out))));
+        if (Array.isArray(db.log) && session.me.role !== 'teacher')
+          db.log.push({ at: new Date().toISOString(), by: session.me.name, itemId: out.id, item: out.name + (out.size ? ' ' + out.size : ''), room: data.room, change: data.change, reason: data.reason || '' });
+        return true;
+      case 'upsert': {
+        if (data.table === 'Settings') return false;
+        const list = db[TABLE_KEY[data.table]], key = KEYCOL[data.table];
+        if (!Array.isArray(list) || !key || !out || !out[key]) return false;
+        const row = putRow(list, key, JSON.parse(JSON.stringify(out)));
+        if (data.table === 'Inventory') normItem(row);
+        if (data.table === 'Library') normPractical(row);
+        if (data.table === 'Requests') { normRequest(row); sortRequests(); }
+        return true;
+      }
+      case 'remove': {
+        const list = db[TABLE_KEY[data.table]], key = KEYCOL[data.table];
+        if (!Array.isArray(list) || !key) return false;
+        db[TABLE_KEY[data.table]] = list.filter(x => String(x[key]) !== String(data.key)); return true;
+      }
+      case 'saveUser': case 'resetPassword':
+        if (!out || !out.user || !out.user.email) return false;
+        putRow(db.users, 'email', { ...out.user }); return true;
+      case 'removeUser':
+        db.users = db.users.filter(u => String(u.email).toLowerCase() !== String(data.email).toLowerCase()); return true;
+      default: return false; // imports and anything new: load everything again
+    }
+  } catch (e) { return false; }
+}
+
+/** Load every table from the server. With quiet, no loading screen is shown (the page is already on screen).
+ *  Returns true if the data changed. */
+export async function refresh({ quiet = false } = {}) {
+  for (let tries = 0; ; tries++) {
+    const startGen = gen;
+    const d = quiet ? await callRaw('bootstrap') : await busy(callRaw('bootstrap'), labelFor('bootstrap'));
+    if (gen !== startGen && tries < 2) continue; // a save happened while loading: load again so it isn't undone
+    const before = JSON.stringify(db);
+    apply(d); unpatched = false; saveCache(db);
+    return JSON.stringify(db) !== before;
+  }
+}
+
+function apply(d) {
   const s = d.settings || {}; const norm = {};
   Object.keys(s).forEach(k => { let v = s[k]; if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) {} } norm[k] = v; });
   ['dayStart', 'dayEnd'].forEach(k => { if (norm[k]) norm[k] = asTime(norm[k]); });
   norm.leadDays = Number(norm.leadDays) || 3; norm.holidays = Array.isArray(norm.holidays) ? norm.holidays : [];
   Object.assign(db, d, { settings: norm });
-  db.inventory.forEach(i => { i.rooms = i.rooms || {}; i.storage = i.storage || {}; i.hazcards = Array.isArray(i.hazcards) ? i.hazcards : []; });
-  db.requests.forEach(r => { r.start = asTime(r.start); r.end = asTime(r.end); r.date = asDay(r.date); });
-  db.requests.forEach(r => { r.kit = Array.isArray(r.kit) ? r.kit : []; r.prep = Number(r.prep) || 0; r.late = r.late === true || r.late === 'TRUE' || r.late === 'true'; });
-  db.library.forEach(p => { p.kit = Array.isArray(p.kit) ? p.kit : []; p.grade = Number(p.grade) || (p.grade == null ? '' : String(p.grade)); });
+  db.inventory.forEach(normItem);
+  db.requests.forEach(normRequest);
+  db.library.forEach(normPractical);
   db.timetable.forEach(t => { t.grade = Number(t.grade) || t.grade; t.start = asTime(t.start); t.end = asTime(t.end); });
-  db.requests.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start) || min(a.start) - min(b.start));
+  sortRequests();
   return db;
 }

@@ -1,6 +1,6 @@
 /* Loading screen: one of 20 small animated pieces of lab equipment, a different one each time.
    busy(promise, label) shows it while the promise runs. It appears only if the wait is longer than a
-   moment (no flash on quick saves) and then stays long enough to be seen. */
+   moment (no flash on quick saves) and goes the moment the work is done. */
 
 const S = 'fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"';
 const A = 'data-acc'; // accent-coloured fill (liquid, flame, …)
@@ -47,21 +47,17 @@ function pick() {
 }
 export const sceneSVG = i => `<svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">${SCENES[i][1]}</svg>`;
 
-let open = 0, node = null, timer = null, removeT = null, shownAt = 0;
-const SHOW_AFTER = 250, MIN_SHOWN = 700;
+let open = 0, node = null, timer = null;
+const SHOW_AFTER = 250;
 
 function show(label) {
-  clearTimeout(removeT);
   if (node) { node.querySelector('.ld-label').textContent = label; return; }
   const i = pick();
   node = document.createElement('div'); node.className = 'loader'; node.setAttribute('role', 'status'); node.setAttribute('aria-live', 'polite');
   node.innerHTML = `<div class="ld-card"><div class="ld-art">${sceneSVG(i)}</div><div class="ld-label">${label}</div><div class="ld-name">${SCENES[i][0]}</div><div class="ld-bar"><i></i></div></div>`;
-  document.body.appendChild(node); shownAt = Date.now();
+  document.body.appendChild(node);
 }
-function hide() {
-  if (!node) return;
-  removeT = setTimeout(() => { if (open === 0 && node) { node.remove(); node = null; } }, Math.max(0, MIN_SHOWN - (Date.now() - shownAt)));
-}
+function hide() { if (node) { node.remove(); node = null; } }
 
 /** Show the loader while `promise` runs. */
 export async function busy(promise, label = 'Loading…') {
