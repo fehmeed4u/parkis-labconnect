@@ -1,6 +1,7 @@
 // Data layer. The same actions run against the browser (demo) or the Google Sheet (live).
 import { CONFIG } from './config.js';
 import { iso, addDays, monday, DAYS, isLabRoom, min, ruleSave, ruleUpdate, rulePostpone } from './logic.js';
+import { busy, labelFor } from './loader.js';
 
 export const db = { settings: {}, users: [], labs: [], timetable: [], inventory: [], hazcards: [], library: [], requests: [], log: [] };
 export const session = { me: null, idToken: null, token: null };
@@ -188,7 +189,8 @@ function demoAction(action, data) {
 /* ---------------- public API ---------------- */
 /** True until config.js has the Apps Script URL: data is then kept in this browser only. */
 export const isDemo = () => !CONFIG.API_URL;
-export async function call(action, data = {}) {
+export function call(action, data = {}) { return busy(callRaw(action, data), labelFor(action)); }
+async function callRaw(action, data = {}) {
   if (isDemo()) {
     if (!demo) await loadDemo();
     if (session.me?.mustChange && !['changePassword', 'login'].includes(action)) throw new Error('must_change_password');
@@ -203,8 +205,8 @@ export async function login(username, password) {
   let out;
   if (isDemo()) out = await call('login', { username, password });
   else {
-    const res = await fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'login', data: { username, password } }) });
-    const j = await res.json(); if (!j.ok) throw new Error(j.error || 'server_error'); out = j.data;
+    const res = await busy(fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'login', data: { username, password } }) }).then(r => r.json()), labelFor('login'));
+    const j = res; if (!j.ok) throw new Error(j.error || 'server_error'); out = j.data;
   }
   Object.assign(session, { me: out.me, token: out.token, idToken: null });
   return out.me;
