@@ -109,8 +109,8 @@ function detail(p, runs, canEdit, orderCtx) {
         ${perGroup.length ? `<table class="tbl boxed"><tbody>${perGroup.map(k => `<tr><td class="num" style="width:1%;white-space:nowrap"><strong>${esc(k.perGroup)} ×</strong></td><td>${esc(k.name)}${k.conc ? ` <span class="muted">(${esc(k.conc)})</span>` : ''}</td></tr>`).join('')}</tbody></table>`
           : `<p class="muted small">${p.kit.length ? 'Nothing per group.' : 'No kit listed yet — see the method sheet. List the kit when you order, and it is saved here for next time.'}</p>`}
         ${forClass.length ? `<h3 class="h3" style="margin-top:12px">For the class</h3><table class="tbl boxed"><tbody>${forClass.map(k => `<tr><td class="num" style="width:1%;white-space:nowrap"><strong>${esc(k.perGroup)} ×</strong></td><td>${esc(k.name)}</td></tr>`).join('')}</tbody></table>` : ''}</section>
-      <section><h3 class="h3">Done before</h3>${runs.length ? `<ul class="hist">${runs.slice(0, 8).map(r => `<li><b>${esc(day(r.date))}</b><span class="muted">${esc(r.class)} · ${esc(r.teacher)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} sets</span>${badge(r)}</li>`).join('')}</ul>` : '<p class="muted small">Not run yet.</p>'}</section>
+      <section>${p.method && !isLink(p.method) ? `<h3 class="h3">Method</h3><div class="lib-method">${esc(p.method)}</div>` : ''}
+        <h3 class="h3"${p.method && !isLink(p.method) ? ' style="margin-top:14px"' : ''}>Done before</h3>${runs.length ? `<ul class="hist">${runs.slice(0, 8).map(r => `<li><b>${esc(day(r.date))}</b><span class="muted">${esc(r.class)} · ${esc(r.teacher)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} sets</span>${badge(r)}</li>`).join('')}</ul>` : '<p class="muted small">Not run yet.</p>'}</section>
     </div>
-    ${p.method && !isLink(p.method) ? `<section><h3 class="h3">Method</h3><div class="lib-method">${esc(p.method)}</div></section>` : ''}
   </article>`;
 }
