@@ -85,8 +85,8 @@ export function hazcardsFor(db, kit) {
   return [...codes].map(c => db.hazcards.find(h => h.code === c) || { code: c, title: '', url: '' });
 }
 
-/** Where a request is on the 7-step path Draft › Submitted › Accepted › In prep › Ready › In use › Closed. */
-export const STAGES = ['Draft', 'Submitted', 'Accepted', 'In prep', 'Ready', 'In use', 'Closed'];
+/** Where a request is on the 7-step path Draft › Sent › Booked › In prep › Ready › In use › Closed. (On time: Sent and Booked at once.) */
+export const STAGES = ['Draft', 'Sent', 'Booked', 'In prep', 'Ready', 'In use', 'Closed'];
 export function stageOf(r, today = iso(new Date())) {
   if (r.status === 'done') return 7;
   if (r.status === 'ready') return r.date === today ? 6 : r.date < today ? 7 : 5;
@@ -129,3 +129,71 @@ export function fromCSV(text) {
     return [h.trim(), v];
   })));
 }
+
+/* ---------- request rules ----------
+   One request goes:  draft → accepted (sent on time: booked straight away, no approval step)
+                            → submitted (sent late: "waiting for approval" until a technician accepts it)
+                      accepted → in_progress → ready → done,  or rejected / cancelled.
+   The colour on both calendars: blue = waiting for approval, red = not started, amber = in prep, green = ready.
+   apps-script/Code.gs repeats ruleSave / ruleUpdate / rulePostpone on the server — keep the two in step. */
+export const lightOf = r => r.status === 'submitted' ? 'w' : prepOf(r);
+export const LIGHTS = { w: 'Waiting for approval', 0: 'Not started', 1: 'In prep', 2: 'Ready' };
+/** Red (or blue): nobody has started preparing it. */
+export const notStarted = r => r.status === 'submitted' || (r.status === 'accepted' && !(Number(r.prep) > 0));
+/** Teachers can change or cancel their request only until the technicians start preparing it. */
+export const teacherCanEdit = r => r.status === 'draft' || notStarted(r);
+/** Booked and still to happen: can be moved to a later lesson (no booking deadline — it may already be prepared). */
+export const canPostpone = r => ['submitted', 'accepted', 'in_progress', 'ready'].includes(r.status);
+const at = (date, start) => date + ' ' + start;
+const nowAt = now => iso(now) + ' ' + fmtMin(now.getHours() * 60 + now.getMinutes());
+
+/** The request as it should be stored when `me` saves `r` (a new one, or a change to `ex`). Throws if the rules don't allow it. */
+export function ruleSave(ex, r, me, settings, now = new Date()) {
+  const staff = me.role !== 'teacher';
+  if (ex && !staff && !teacherCanEdit(ex)) throw new Error('locked');
+  const out = { ...r };
+  if (r.status === 'draft') { if (ex && ex.status !== 'draft') throw new Error('already_sent'); out.prep = 0; return out; }
+  const late = isLate(r.date, settings, now);
+  if (!ex || ex.status === 'draft') { Object.assign(out, { late, status: staff || !late ? 'accepted' : 'submitted', prep: 0 }); return out; }
+  out.prep = ex.prep; out.late = ex.late;
+  if (staff) { out.status = ex.status; return out; }
+  // a teacher changing a request nobody has started yet
+  const moved = at(r.date, r.start) !== at(ex.date, ex.start);
+  if (ex.status === 'submitted') Object.assign(out, { status: late ? 'submitted' : 'accepted', late });
+  else if (moved && late && at(r.date, r.start) < at(ex.date, ex.start)) Object.assign(out, { status: 'submitted', late: true }); // moved earlier, past the deadline
+  else out.status = 'accepted';
+  out.flag = 'Changed by the teacher';
+  return out;
+}
+
+/** The patch to store when `me` updates request `r`. Throws if the rules don't allow it. */
+export function ruleUpdate(r, patch, me) {
+  const out = { ...patch };
+  if (me.role === 'teacher') {
+    Object.keys(patch).forEach(k => { if (!['status', 'rating', 'feedback', 'lateChoice', 'reply', 'query'].includes(k)) throw new Error('forbidden_field:' + k); });
+    if (patch.status === 'cancelled') { if (!teacherCanEdit(r)) throw new Error('locked'); }
+    else if (patch.status && patch.status !== 'done') throw new Error('forbidden_status');
+  }
+  if (patch.status === 'cancelled' && r.status !== 'draft' && me.role === 'teacher') out.flag = 'Cancelled by the teacher';
+  return out;
+}
+
+/** The patch that moves request `r` to a later lesson `slot` ({ date, start, end, room, timetabledRoom }). */
+export function rulePostpone(r, slot, me, now = new Date()) {
+  if (!canPostpone(r)) throw new Error('cannot_postpone');
+  if (at(slot.date, slot.start) <= nowAt(now)) throw new Error('lesson_started');
+  if (me.role === 'teacher' && at(slot.date, slot.start) <= at(r.date, r.start)) throw new Error('not_later');
+  return { date: slot.date, start: slot.start, end: slot.end, room: slot.room, timetabledRoom: slot.timetabledRoom || slot.room,
+    postponedFrom: r.postponedFrom || at(r.date, r.start), flag: `Postponed by the ${me.role === 'teacher' ? 'teacher' : 'technicians'} from ${nice(r.date)} ${r.start}` };
+}
+
+/* ---------- safety paperwork for chemicals: CLEAPSS hazcard(s) and the supplier's safety data sheet (SDS) ----------
+   Every chemical should have at least one; ideally both. linkSds in Code.gs fills `sds` from the SDS folder. */
+export const sdsToCheck = i => /^Close match/.test(i.sdsNote || '');
+/** '' = has both · 'no-sds' · 'no-hazcard' · 'none' = neither (not for equipment). */
+export function safetyGap(i) {
+  if (i.list !== 'Chemicals') return '';
+  const hz = (i.hazcards || []).length > 0, sds = !!i.sds;
+  return hz && sds ? '' : hz ? 'no-sds' : sds ? 'no-hazcard' : 'none';
+}
+export const SAFETY_GAP = { none: 'No hazcard and no SDS', 'no-sds': 'Hazcard only — no SDS', 'no-hazcard': 'SDS only — no hazcard' };

@@ -2,12 +2,15 @@
 
 A small website for a science department:
 
-- **Teachers** order practicals in three steps: (1) pick the lesson on their own weekly timetable — green means it can still be booked on time, red means the deadline has passed (they can still send a late request), and any practical already ordered for that lesson is shown on it; (2) choose a **new lab request**, start **from the practical library** and adapt it, or **bring a practical from AI** — copy the app's prompt into ChatGPT, Gemini, Claude or Copilot with a worksheet/PDF, paste the answer back, and the app checks every item against the inventory (we have it / not enough / missing) and offers a “rethink” prompt to redo it with only the kit we have (the built-in *Use AI* option is shown as coming soon); (3) check and send the request form, with the lesson already filled in. They follow each one through Draft › Submitted › Accepted › In prep › Ready › In use › Closed. Questions from the technicians show up under *Needs your action*. They can pick from a library of past practicals and see straight away if equipment clashes with another booking. If their lesson is in a classroom, they can see which labs are free, have a lesson without a practical, or already have a practical booked (and by whom).
-- **Lab technicians** work from a request queue with the prep sheet beside it (query, reject, or accept and reserve stock; pick list with where-to-find-it; shortages flagged). They also see the week as colour blocks (red = not started, amber = in progress, green = prepared). They can choose from five layouts and three colour schemes. Each request has an accept / change day-time / reject option and a prep sheet with a pick list, where-to-find-it and print labels.
+- **Teachers** order practicals in three steps: (1) pick the lesson on their own weekly timetable — green means it can still be booked on time, red means the deadline has passed (they can still send a late request), and any practical already ordered for that lesson is shown on it; (2) choose a **new lab request**, start **from the practical library** and adapt it, or **bring a practical from AI** — copy the app's prompt into ChatGPT, Gemini, Claude or Copilot with a worksheet/PDF, paste the answer back, and the app checks every item against the inventory (we have it / not enough / missing) and offers a “rethink” prompt to redo it with only the kit we have (the built-in *Use AI* option is shown as coming soon); (3) check and send the request form, with the lesson already filled in. A request sent **on time is booked straight away** — there is no accept step. A **late** request shows in **blue** (“waiting for approval”) until a technician approves it. Teachers see the same colours as the technicians on their timetable: blue waiting for approval, red not started, amber in prep, green ready. They can **change or cancel** a request only while it is red (or blue); once the technicians have started preparing it they have to talk to them. They can **postpone** any booked practical to a later lesson on their timetable at any time — there is no deadline, because it may already be prepared — and the technicians are told. Questions from the technicians show up under *Needs your action*. They can pick from a library of past practicals and see straight away if equipment clashes with another booking. If their lesson is in a classroom, they can see which labs are free, have a lesson without a practical, or already have a practical booked (and by whom).
+- **Lab technicians** work from a request queue with the prep sheet beside it (query, reject, or accept and reserve stock; pick list with where-to-find-it; shortages flagged). They also see the week as colour blocks (red = not started, amber = in progress, green = prepared). They can choose from five layouts and three colour schemes. Each request has an accept / change day-time / reject option and a prep sheet with a pick list, where-to-find-it and print labels. The **Prep sheet** button on the week board opens the sheet in a new tab, so the board stays open and several sheets can be open at once. On an iPad, the request queue opens each prep sheet as its own page, and inventory items open in a panel that slides in from the right.
 - **The HOD** gets a department overview: late requests and purchases waiting for approval, stock alerts, technician prep load and how busy each lab is.
 - **Everyone** can see the inventory: room by room, with the cabinet position and a picture. Technicians and the HOD can change it; teachers can only view it.
-- **Booking rule:** requests are due a set number of working days ahead (default 3). Late requests are flagged, and the teacher chooses to talk to the technicians first or to send a draft anyway.
-- **Hazcards:** the CLEAPSS hazcards for every chemical in an order pop up for the teacher when ordering and for the technician when preparing.
+- **Booking rule:** requests are due a set number of working days ahead (default 3). On-time requests are booked automatically; late requests wait (blue) for a technician to approve, change the day or time, or reject them. The teacher chooses to talk to the technicians first or to send it anyway.
+- **Changes the technicians must see:** when a teacher changes, postpones or cancels a request, it is flagged on the week board, the queue and the prep sheet until a technician clicks *Seen*. A cancelled practical stays on the board, struck through, until then — with a warning if another teacher has the same practical that day and may be sharing the trolley.
+- **Hazcards and safety data sheets:** the CLEAPSS hazcards for every chemical in an order pop up for the teacher when ordering and for the technician when preparing. Each chemical in the inventory, the order form and the prep sheet links to its safety data sheet (SDS). A **Safety report** lists every chemical that still has no hazcard or SDS.
+- **Solutions:** for each chemical the teacher gives the concentration and the volume per group. The prep sheet lists the chemicals as a table and works out, from the school’s CLEAPSS Recipe Sheets, how much to weigh or measure for the volume to make up (the next flask size above what is needed, plus about 10 %). The full recipe and any instructions the teacher wrote (e.g. from a past paper) are under **Show / Hide how to make them**.
+- **Risk assessment:** an order can’t be sent until the teacher has ticked *I have checked this risk assessment*. The table (hazard · how to reduce the risk · if it happens) fills itself in: glassware always, one row for each hazcard in the kit (from the school’s CLEAPSS Hazcards) and one for each activity found in the title, method and kit (titration, heating, dissection, microbiology, electricity …). Teachers can change, remove or add rows. Before sending they see the whole practical — equipment, chemicals, method, hazcards and risk assessment — on one page. The risk assessment is saved with the request (shown on the prep sheet) and in the practical library.
 - **Records:** every request is kept with its date and time, so the practical library grows by itself. Every table can be exported and imported as JSON or CSV (CSV opens in Excel).
 
 It is a plain static site (HTML, CSS, JavaScript; no build step). The landing page is the sign-in page. Where the data lives depends on `assets/js/config.js`:
@@ -69,6 +72,7 @@ In Apps Script, **Project Settings → Script properties → Add**:
 | `ADMIN_EMAILS` | the HOD’s email or username; separate several with commas. These people are always admins. |
 | `ADMIN_USERNAME` | (optional) the HOD’s username for the first sign-in, default `hod` |
 | `HAZCARD_FOLDER_ID` | (optional, see 2.6) the Drive folder ID of your hazcard PDFs |
+| `SDS_FOLDER_ID` | (optional, see 2.6) the Drive folder ID of your safety data sheet (SDS) PDFs |
 
 ### 2.4 Deploy the web app
 
@@ -78,7 +82,7 @@ In Apps Script, **Project Settings → Script properties → Add**:
 
 When you change `Code.gs` later, use **Deploy → Manage deployments → edit (pencil) → Version: New version** so the URL stays the same.
 
-> **Updating from an earlier version:** recent updates added columns (`passwordHash`, `salt`, `mustChange` on Users; `query`, `reply`, `hodApproved` on Requests; `orderApproved` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
+> **Updating from an earlier version:** recent updates added columns (`passwordHash`, `salt`, `mustChange` on Users; `query`, `reply`, `hodApproved`, `flag`, `postponedFrom`, `method`, `risks`, `activities`, `prepNotes` on Requests; `risks`, `prepNotes` on Library; new tabs Recipes and RiskCards; `orderApproved`, `sds`, `sdsNote`, `altNames` on Inventory). Paste the new `Code.gs`, deploy a new version, then run **`setup`** once — it adds the missing column headers to your existing tabs without touching the data.
 
 ### 2.5 Connect the site to the Google Sheet
 
@@ -108,6 +112,9 @@ In the site, go to **Admin → Import & export → Import**, choose a table, cho
 | Inventory | `inventory.json` |
 | Hazcards | `hazcards.json` |
 | Library | `library.json` |
+| Recipes | `recipes.json` (from your CLEAPSS Recipe Sheets) |
+| RiskCards | `riskcards.json` (hazards, control measures and emergency action from your CLEAPSS Hazcards) |
+| Users | `users.json` |
 
 **Building the library from Google Drive.** `apps-script/drive-practicals-scan` scans a Drive folder and writes one JSON file (see its README). Turn that file into `library.json` with:
 
@@ -116,7 +123,6 @@ python3 tools/build_library.py practicals-all-grades.json school-data/inventory.
 ```
 
 The tool leaves out exam papers, mark schemes, answer and guidance sheets, rubrics, IA samples, purchase requests and templates. It merges the copies of each practical (Word, PDF, "(1)", "old" and its requisition sheet). It reads the equipment from requisition-sheet tables and "Equipment / Apparatus" sections and matches each item to the inventory. It also writes `library-review.csv`, with every practical and the files it came from, and `excluded.csv`, with every file it left out and why. A practical used in both years gets the grade `11-12`, and it shows under G11 and under G12 in the library.
-| Users | `users.json` |
 
 Then open **People & roles** and click **+ Add person** for each member of staff: their name (exactly as on the timetable, so teachers see their own lessons), a username, and their role (*Teacher*, *Lab technician* or *Head of department*). The app makes a **temporary password** and shows it once — copy it and give it to the person with their username. The first time they sign in they must choose their own password (at least 8 characters).
 
@@ -127,11 +133,31 @@ Then open **People & roles** and click **+ Add person** for each member of staff
 - **Test accounts:** in Apps Script run **`makeTestAccounts`**. The execution log lists `test.teacher`, `test.labtech` and `test.hod` with a random password each (no change needed at first sign-in), so you can try every role. Set the script property `TEST_TEACHER_NAME` to a teacher’s name from the timetable first if you want the test teacher to see that teacher’s lessons. Run **`removeTestAccounts`** when you are done. (The live passwords are random on purpose — fixed ones would be public in this repository.)
 - If you also set up Google sign-in, use the person’s school email as their username and they can use either way to sign in.
 
+**Recipes and risk cards.** The CLEAPSS Recipe Sheets and Hazcards are copyright CLEAPSS and for members only, so they are not in this repository either. Their contents go into the Sheet as two tables, **Recipes** and **RiskCards**, imported like the other files above. Until you import them, the app uses a few sample recipes and risk cards written for testing (`data/demo/recipes.json`, `data/demo/riskcards.json`). Technicians and the HOD can correct any row in the Sheet.
+
 **Hazcards.** CLEAPSS hazcards are copyright CLEAPSS and for members only, so they are not in this repository. To make them pop up:
 
 1. Upload the hazcard PDFs to one folder in the school Google Drive. Leave it shared with the school only, not public. File names must start with the card number, e.g. `91A - Sodium Hydroxide.pdf`, as they do already.
 2. Copy the folder ID (the part of the folder’s URL after `/folders/`) into the `HAZCARD_FOLDER_ID` script property.
 3. In Apps Script run **`linkHazcards`**. The Hazcards tab now holds a preview link for each card. Staff signed in to the school Google account see the card itself in the pop-up.
+
+**Other names of chemicals.** `data/alternative-names.csv` holds the *Alternative name(s)* column of the school inventory (110 chemicals, e.g. propanone = acetone, Epsom salts = magnesium sulfate). To load it:
+
+1. In the Sheet, **File → Import → Upload** `alternative-names.csv` → **Insert new sheet(s)**, and rename the tab **Alternative names**. (You can instead paste the *Name* and *Alternative name(s)* columns straight from the inventory spreadsheet.)
+2. In Apps Script run **`linkAltNames`**. Each row is matched by the chemical's id, or by its name. Names already typed into the app are kept; `linkAltNames(true)` replaces them. The log lists any names it could not find.
+3. Run **`linkSds`** again so it also searches the SDS folder by the other names.
+
+Teachers and technicians can then find a chemical by any of its names: in the inventory search, in the order form's *Type to search the inventory* box and when the AI import matches an AI's list. The prep sheet shows *also called …* under each chemical. Technicians can edit the names on each item (**More details → Other names**, separated by `;`).
+
+**Safety data sheets (SDS).** Every chemical should have its hazcard, its SDS, or both. To link the SDS files:
+
+1. Put the SDS PDFs in one folder in the **school** Google Drive (the account that owns the Apps Script must be able to open it), shared with the school only. Name each file after the chemical, e.g. `Sodium hydroxide.pdf`. A file that covers two names can list both, separated by a comma: `methanoic acid, formic acid.pdf`.
+2. Copy the folder ID into the `SDS_FOLDER_ID` script property.
+3. In Apps Script run **`linkSds`**. It matches each chemical by name, by its *Other names* (`altNames`, separated by `;`) and by common old/IUPAC pairs (ethanoic acid = acetic acid, propanone = acetone, potassium manganate(VII) = potassium permanganate …). It ignores hydrates, grades and concentrations only as a last resort, and marks those links *“Close match — check it is the right one”*. Technicians see that note on the item and click **It’s right** once they have checked it.
+   For chemicals with **no file in the folder**, `linkSds` also uses free SDS PDFs from the suppliers’ own websites: import `data/sds-web-links.csv` from this repository into the Sheet first (**File → Import → Upload → Insert new sheet(s)**) and rename that tab **SDS web links**. Each link in it was downloaded and its product name checked (Fisher Scientific/Thermo Fisher and Lovibond). Links used for a close substitute, e.g. the iron-wire SDS for iron wool, are marked *check*.
+4. Open the new **SDS report** tab in the Sheet: every chemical with its file and match, the files nothing matched, and files that look like the same chemical (keep one).
+
+Links typed in by hand (**Inventory → item → More details → Safety data sheet link**) are kept when you run `linkSds` again; `linkSds(null, true)` redoes them all. In the app, **Inventory → Chemicals missing safety info** lists every chemical without a hazcard or SDS (and the SDS still to check), and **Safety report** downloads the whole list for a health and safety check.
 
 ### 2.7 Backups
 

@@ -1,0 +1,111 @@
+id,chemical,altNames
+i0607,Acetone,propanone
+i0608,L-ascorbic acid,Vitamin C
+i0613,aluminium ammonium sulfate(VI)-12-water,ammonium alum
+i0616,aluminium potassium sulfate (VI) -12-water,alum; potash alum
+i0617,aluminium sulfate(VI)-18-water,aliminium sulfate (VI)
+i0621,ammonium chloride,sal ammoniac
+i0622,ammonium sulfate,ammonium sulfate(VI)
+i0624,amylase,diastase
+i0628,Benedict’s reagent,Benedict’s solution
+i0629,ahydrousbenzene,benzol
+i0630,"benzene-1,2,3-triol","pyrogallol; pyrogallic acid; 1,2,3-trihydroxybenzene"
+i0631,benzoic acid,benzenecarboxylic acid
+i0633,Borax,disodium tetraborate decahydrate
+i0634,boric acid,boracic acid; trioxoboric(III) acid
+i0644,butan-1-ol,n-butyl alcohol
+i0645,butan-2-ol,sec-butyl alcohol
+i0646,butane,n-butane
+i0647,Calcium carbonate,chalk; calcite; limestone; marble chips
+i0648,"calcium carbonate, 9-12 mm chips",chalk; calcite; limestone; marble chips
+i0649,"calcium carbonate, powder",chalk; calcite; limestone; marble chips
+i0650,"calcium carbonate, stone",chalk; calcite; limestone
+i0653,calcium chloride-2-water,hydrated calcium chloride
+i0654,calcium hydroxide solution,limewater
+i0656,calcium oxide,quicklime
+i0658,"carbon, powder",graphite; charcoal; lamp black
+i0659,"carbon, rod",graphite; charcoal; lamp black
+i0661,chloro-2-methylpropane,t-butyl chloride
+i0662,chloroform,trichloromethane
+i0663,2-chlorobutane,sec-butyl chloride
+i0664,cobalt(II) chloride-6-water,hydrated cobalt(II) chloride
+i0666,copper(II) carbonate hydroxide,basic copper carbonate; malachite; cupric carbonate
+i0667,copper(II) chloride-2-water,hydrated cupric chloride
+i0668,copper(II) nitrate-3-water,hydrated cupric nitrate; copper(ii) nitrate trihydrate
+i0669,copper(II) oxide,cupric oxide
+i0670,copper(II) sulfate(VI),anhydrous copper sulfate(VI)
+i0672,copper(II) sulfate(VI)-5-water,hydrated copper sulfate(V)
+i0673,cresol red (sodium salt),o-cresolsulfonphthalein
+i0675,chromium (III) potassium sulfate (VI)-12-water,chrome alum
+i0677,ammonium iron(II) sulfate(VI)-6-water,iron(II) ammonium sulfate(VI); Mohr's salt
+i0678,dichlorophenolindophenol,"DCPIP; phenol-indo-2,6-dichlorophenol; PIDCP"
+i0679,diethyl ether,ethoxyethane
+i0682,EDTA ethylene diamine tetraacetic acid (disodium salt),bis[bis(carboxymethyl)amino]ethane (disodium salt)
+i0684,ethanoic acid,acetic acid; glacial acetic acid
+i0685,ethanoic acid,acetic acid; glacial acetic acid
+i0687,ethanol,ethyl alcohol (pure ethanol)
+i0688,ethyl ethanoate,ethyl acetate
+i0690,anhydrous D-glucose,dextrose; grape sugar
+i0693,hexan-1-ol,n-hexyl alcohol; hexanol
+i0702,Hydrogencarbonate indicator,Bicarbonate indicator solution
+i0703,"2-Hydroxypropane-1,2,3-tricarboxylic acid",citric acid
+i0710,iron(II) chloride-4-water,hydrated ferrous chloride
+i0712,iron(II) sulfate(VI)-7-water,hydrated iron sulfate(VI); hydrated ferrous sulfate(VI)
+i0713,iron(III) chloride-6-water,hydrated ferric chloride
+i0715,iron(III) sulfate(VI)-9-water,hydrated ferric sulfate
+i0716,iron(III) oxide,ferric oxide; haematite
+i0717,Janus green B,Diazine Green
+i0721,lead(II) nitrate,lead dinitrate
+i0722,lead(IV) oxide,lead dioxide
+i0729,litmus solution,Tournesol teinture
+i0730,Lugol solution,iodine/ potassium iodide solution
+i0731,magnesium carbonate hydroxide,magnesium carbonate basic
+i0732,magnesium chloride-6-water,hydrated magnesium chloride
+i0734,magnesium oxide,magnesia
+i0736,magnesium sulfate(VI)-7-water,hydrated magnesium sulfate; Epsom salts
+i0740,manganese (II) sulfate(VI)-1-water,hydrated manganese sulfate
+i0741,manganese(IV) oxide,manganese dioxide; pyrolusite
+i0742,methanoic acid,formic acid
+i0743,methanol,methyl alcohol; wood alcohol
+i0744,methyl acetate,methyl ethanoate
+i0748,nickel metal,nickel fine mesh
+i0750,nickel(II) sulfate(VI)-6-water,hydrated nickel sulfate
+i0751,nitric(V) acid,65% nitric(V) acid
+i0755,octadecanoic acid,stearic acid
+i0756,orcein,orcein b in hydroalcoholic solution
+i0757,oxalic acid,ethanedioic acid
+i0758,paraffin liquid,liquid paraffin; oil for baths; medicinal paraffin
+i0759,pentan-1-ol,n-amyl alcohol
+i0762,petroleum ether 40-60,petroleum spirit 40-60
+i0766,potassium chloride,muriate of potash
+i0768,potassium hydrogen phthalate,"potassium hydrogen-benzene-1,2-dicarboxylate; potassium hydrogen benzene-1,2-dioate"
+i0770,"potassium hydroxide, pellets",caustic potash
+i0773,potassium manganate(VII),potassium permanganate
+i0775,potassium peroxodisulfate(VI),potassium peroxodisulfate; potassium persulfate
+i0776,potassium phosphate,potassium dihydrogenphosphate(V)
+i0777,propan-1-ol,n-propanol; propanol
+i0778,propan-2-ol,isopropanol; isopropyl alcohol
+i0779,propanal,propionaldehyde
+i0780,propanoic acid,propionic acid
+i0781,propanone,acetone
+i0782,propanone,acetone
+i0783,silver nitrate(V),silver nitrate
+i0785,sodium benzoate,sodium benzenecarboxylate
+i0786,sodium bicarbonate,sodium hydrogencarbonate
+i0787,sodium bisulfite,sodium hydrogen sulfite; sodium hydrogen sulfate (IV)
+i0790,sodium chlorate(I),bleach; sodium hypochlorite
+i0791,sodium chloride,halite; rock salt
+i0792,sodium hydrogencarbonate solution,baking soda solution
+i0793,"sodium hydroxide, chips",caustic soda
+i0797,sodium nitrate (V),sodium nitrate
+i0799,sodium nitrite,sodium nitrate (III)
+i0801,sodium sulfate(VI)-10-water,hydrated sodium sulfate; Glauber's salt
+i0803,sodium thiosulfate-5-water,hypo
+i0807,strontium chloride-6-water,hydrated strontium chloride
+i0808,sucrose,sugar
+i0810,sulfuric(VI) acid,concentrated sulfuric acid
+i0822,Urea (cristal),carbamide
+i0824,zinc carbonate,zinc white; calamine
+i0825,zinc metal,zinc granules
+i0826,zinc nitrate(V)-6-water,hydrated zinc nitrate(V)
+i0829,zinc sulfate(VI)-7-water,hydrated zinc sulfate(VI)

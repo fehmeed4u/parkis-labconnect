@@ -1,5 +1,6 @@
 // "Bring a practical from AI": a prompt to copy into any AI chat (with a PDF or an idea), then paste the
 // answer back. The answer is matched against our inventory so the teacher sees what we have and what's missing.
+import { parseVol } from '../chem.js';
 import { db, session } from '../store.js';
 import { esc, nice, roomName, isLabRoom, totalStock, min, gradeOf } from '../logic.js';
 import { toast } from '../ui.js';
@@ -25,6 +26,8 @@ PLAN IT THE MINIMALIST WAY
 - Count equipment per group. Put anything only the teacher needs (a demo, a shared balance) under "teacherOnly".
 - Do not list things everyone already has: pens, paper, calculators, eye protection, lab coats.
 - It must be doable in ${mins} minutes, including setting up and clearing away.
+- For each chemical give the concentration (e.g. "0.5 M") and the volume per group in cm3.
+- Write a risk assessment: one row per real hazard (each chemical, heat, glass, sharps, electricity…) with how to reduce the risk and what to do if it happens, following CLEAPSS Hazcards.
 
 ANSWER FORMAT
 Reply with ONLY one JSON code block, exactly in this shape (no other text):
@@ -46,6 +49,9 @@ Reply with ONLY one JSON code block, exactly in this shape (no other text):
     { "name": "Balance", "size": "0.01 g", "qty": 1 }
   ],
   "method": ["Step 1", "Step 2"],
+  "risks": [
+    { "hazard": "What could go wrong, e.g. 1 M hydrochloric acid splashing in the eyes", "control": "How to reduce the risk", "action": "What to do if it happens" }
+  ],
   "safety": ["Short safety point"],
   "disposal": "How to dispose of the waste"
 }
@@ -82,6 +88,7 @@ export function parseAnswer(text) {
   const out = {
     title: String(j.title || '').trim(), topic: String(j.topic || '').trim(), aim: String(j.aim || '').trim(), sets: num(j.sets, 0),
     method: arr(j.method).map(String), safety: arr(j.safety).map(String), disposal: String(j.disposal || ''),
+    risks: arr(j.risks).map(x => ({ hazard: String(x.hazard || '').trim(), control: String(x.control || x.precaution || '').trim(), action: String(x.action || x.emergency || '').trim() })).filter(x => x.hazard),
     items: [
       ...arr(j.equipment).map(x => ({ kind: 'equipment', name: String(x.name || '').trim(), size: String(x.size || '').trim(), perGroup: num(x.perGroup, 1) })),
       ...arr(j.chemicals).map(x => ({ kind: 'chemical', name: String(x.name || '').trim(), concentration: String(x.concentration || '').trim(), amount: String(x.amountPerGroup || x.amount || '').trim(), hazard: String(x.hazard || '').trim(), perGroup: 1 })),
@@ -123,11 +130,18 @@ function candidates(row, loose = false) {
   const out = [];
   for (const it of db.inventory) {
     if (lists ? !lists.includes(it.list) : it.list === 'Chemicals' || it.list === 'Temporary' || it.list === 'Documents') continue;
-    const iw = new Set(words(it.name)); let common = 0; aw.forEach(w => { if (iw.has(w)) common++; });
-    if (!common) continue;
-    const cover = common / aw.length; if (cover < need) continue; // the AI's key words must be there ("gas syringe" is not a "syringe")
-    let score = cover + 0.3 * common / Math.max(1, iw.size);
-    if (iw.has(aw[aw.length - 1])) score += 0.5; // the last word is usually the thing itself: gas SYRINGE, conical FLASK
+    // a chemical can be named by any of its other names (propanone = acetone)
+    const names = [it.name, ...String(it.altNames || '').split(/\s*[;|]\s*/).filter(Boolean)];
+    let score = -1;
+    for (const n of names) {
+      const iw = new Set(words(n)); let common = 0; aw.forEach(w => { if (iw.has(w)) common++; });
+      if (!common) continue;
+      const cover = common / aw.length; if (cover < need) continue; // the AI's key words must be there ("gas syringe" is not a "syringe")
+      let s = cover + 0.3 * common / Math.max(1, iw.size);
+      if (iw.has(aw[aw.length - 1])) s += 0.5; // the last word is usually the thing itself: gas SYRINGE, conical FLASK
+      score = Math.max(score, s);
+    }
+    if (score < 0) continue;
     if (ai.kind !== 'chemical') { const m = sizeMatch(ai.size || ai.name, it.size + ' ' + it.name); score += 0.6 * (loose ? Math.max(0, m) : m); } // a different size is still a useful suggestion
     if (totalStock(it) > 0) score += 0.1;
     if (score >= 0.5 || loose) out.push({ item: it, score });
@@ -156,7 +170,7 @@ export function render(el, opts) {
   const { lesson: l, key } = opts; const saved = store(key);
   const st = { text: saved.get(), parsed: null, err: '', rows: [], sets: Number(new URLSearchParams(location.hash.split('?')[1] || '').get('sets')) || 6 };
   const prompt = () => buildPrompt(l, st.sets);
-  const invList = `<datalist id="aiInv">${db.inventory.map(i => `<option value="${esc(i.name + (i.size ? ' · ' + i.size : '') + ' [' + i.id + ']')}">`).join('')}</datalist>`;
+  const invList = `<datalist id="aiInv">${db.inventory.map(i => `<option value="${esc(i.name + (i.altNames ? ' (' + i.altNames + ')' : '') + (i.size ? ' · ' + i.size : '') + ' [' + i.id + ']')}">`).join('')}</datalist>`;
 
   const parse = () => {
     st.err = ''; st.parsed = null; st.rows = [];
@@ -211,7 +225,7 @@ export function render(el, opts) {
           <td>${r.item ? `${totalStock(r.item)}${r.item.list === 'Chemicals' ? ' bottle' + (totalStock(r.item) === 1 ? '' : 's') : ''}<div class="muted xs">${Object.keys(r.item.rooms).filter(k => Number(r.item.rooms[k]) > 0).slice(0, 2).map(k => esc(roomName(db, k))).join(', ')}</div>` : '—'}</td>
           <td>${r.status === 'ok' ? '<span class="pill ok">✓ We have it</span>' : r.status === 'short' ? '<span class="pill warn">⚠ Not enough</span>' : `<span class="pill urgent">✕ Missing</span><label class="check xs" style="margin-top:6px"><input type="checkbox" data-keep="${i}" ${r.keep ? 'checked' : ''}> Send it anyway</label>`}</td></tr>`).join('')}
         </tbody></table>${invList}</div>
-        ${p.method.length || p.safety.length || p.disposal ? `<details><summary class="strong" style="cursor:pointer">Method, safety and disposal from the AI (goes into the notes for the technicians)</summary>
+        ${p.method.length || p.safety.length || p.disposal ? `<details><summary class="strong" style="cursor:pointer">Method, safety and disposal from the AI (the method and risks go into your order to check)</summary>
           ${p.method.length ? `<h3 class="h3" style="margin-top:12px">Method</h3><ol class="rules">${p.method.map(m => `<li>${esc(m)}</li>`).join('')}</ol>` : ''}
           ${p.safety.length ? `<h3 class="h3" style="margin-top:12px">Safety</h3><ul class="rules">${p.safety.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
           ${p.disposal ? `<h3 class="h3" style="margin-top:12px">Disposal</h3><p class="small">${esc(p.disposal)}</p>` : ''}</details>` : ''}
@@ -244,11 +258,14 @@ export function render(el, opts) {
         const name = r.item ? r.item.name + (r.item.size ? ' ' + r.item.size : '') + (r.ai.kind === 'chemical' ? [r.ai.concentration && ' · ' + r.ai.concentration, r.ai.amount && ` (${r.ai.amount} per group)`].filter(Boolean).join('') : '')
           : label(r.ai) + ' — not in our inventory';
         return r.ai.kind === 'teacher' ? { itemId: r.item?.id || '', name: name + ' (teacher)', perGroup: r.ai.qty, qty: r.ai.qty, fixed: true }
-          : { itemId: r.item?.id || '', name, perGroup: r.ai.perGroup, qty: r.ai.perGroup * st.sets };
+          : { itemId: r.item?.id || '', name, perGroup: r.ai.perGroup, qty: r.ai.perGroup * st.sets,
+            ...(r.ai.kind === 'chemical' ? { conc: r.ai.concentration || '', vol: parseVol(r.ai.amount) || '' } : {}) };
       });
-      const notes = [p.aim && 'Aim: ' + p.aim, p.method.length && 'Method:\n' + p.method.map((m, i) => `${i + 1}. ${m}`).join('\n'), p.safety.length && 'Safety: ' + p.safety.join(' '), p.disposal && 'Disposal: ' + p.disposal,
+      const method = p.method.map((m, i) => `${i + 1}. ${m}`).join('\n');
+      const risks = p.risks.map((x, i) => ({ key: 'own:ai' + i, source: 'From the AI plan — check it', ...x, edited: true }));
+      const notes = [p.aim && 'Aim: ' + p.aim, p.safety.length && 'Safety: ' + p.safety.join(' '), p.disposal && 'Disposal: ' + p.disposal,
         st.rows.some(r => r.status === 'missing' && r.keep) && 'We don’t have (please order, borrow or suggest a swap): ' + st.rows.filter(r => r.status === 'missing' && r.keep).map(r => label(r.ai)).join(', '), '(Planned with AI from a teacher’s source.)'].filter(Boolean).join('\n\n');
-      opts.onUse({ title: p.title || 'Untitled practical', topic: p.topic, sets: st.sets, kit, notes });
+      opts.onUse({ title: p.title || 'Untitled practical', topic: p.topic, sets: st.sets, kit, notes, method, risks });
     };
   };
 
