@@ -233,7 +233,7 @@ function form(el, q, editing, teacher, lesson) {
   if (!S || S._for !== key) {
     const p = q.get('practical') ? db.library.find(x => x.id === q.get('practical')) : null;
     S = editing ? JSON.parse(JSON.stringify(editing)) : { teacher, kit: [], sets: 6, title: p?.title || '', practicalId: p?.id || '', notes: '', lateChoice: '' };
-    if (p && !editing) { const last = db.requests.filter(r => r.practicalId === p.id && Number(r.sets) > 0).sort((a, b) => b.date.localeCompare(a.date))[0]; if (last) S.sets = Number(last.sets);
+    if (p && !editing) { const last = db.requests.filter(r => r.practicalId === p.id && Number(r.sets) > 0).sort((a, b) => b.date.localeCompare(a.date))[0]; if (last) S.sets = Number(last.sets); else if (Number(p.sets) > 0) S.sets = Number(p.sets);
       S.kit = libKit(p.kit, S.sets); Object.assign(S, { method: p.method || '', prepNotes: p.prepNotes || '', risks: Array.isArray(p.risks) ? p.risks : [] }); }
     if (editing) { S.kit.forEach(k => { k.perGroup = k.perGroup || Math.max(1, Math.round(k.qty / (S.sets || 1))); }); S.risks = Array.isArray(S.risks) ? S.risks : []; S.riskChecked = editing.status !== 'draft' && S.risks.length > 0; }
     S._for = key;
@@ -425,7 +425,7 @@ function form(el, q, editing, teacher, lesson) {
     try {
       if (!r.practicalId && status !== 'draft') {
         const p = await call('upsert', { table: 'Library', row: { title: r.title, grade: r.grade, subject: r.subject, course: '', topic: S.topic || '', kit: S.kit.map(k => k.fixed ? { itemId: k.itemId, name: k.name, perGroup: k.qty, fixed: true } : { itemId: k.itemId, name: k.name, perGroup: k.perGroup, ...(k.conc ? { conc: k.conc } : {}), ...(k.vol ? { vol: Number(k.vol) } : {}) }),
-          prepMinutes: '', method: r.method || '', risks: r.risks, prepNotes: r.prepNotes || '' } });
+          prepMinutes: '', method: r.method || '', risks: r.risks, prepNotes: r.prepNotes || '', sets: Number(r.sets) || '' } });
         r.practicalId = p.id;
       }
       const saved = await call('saveRequest', { request: r });

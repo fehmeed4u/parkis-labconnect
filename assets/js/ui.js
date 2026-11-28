@@ -31,6 +31,7 @@ export function promptBox(title, fields, okLabel = 'Save') {
   return new Promise(res => {
     const d = modal(`<h2 class="h2">${esc(title)}</h2><form id="pf" class="stack">${fields.map(f => `<label class="fld">${esc(f.label)}${f.options
       ? `<select name="${esc(f.name)}">${f.options.map(o => `<option${o === f.value ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`
+      : f.type === 'textarea' ? `<textarea name="${esc(f.name)}" rows="${f.rows || 6}">${esc(f.value ?? '')}</textarea>`
       : `<input name="${esc(f.name)}" type="${f.type || 'text'}" value="${esc(f.value ?? '')}">`}</label>`).join('')}
       <div class="row end gap"><button type="button" class="btn" data-close>Cancel</button><button class="btn pri">${esc(okLabel)}</button></div></form>`, { onClose: () => res(null) });
     d.querySelector('#pf').onsubmit = e => { e.preventDefault(); const o = Object.fromEntries(new FormData(e.target)); closeModal(); res(o); };
