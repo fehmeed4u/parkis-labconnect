@@ -148,13 +148,13 @@ function people(p) {
 function settings(p) {
   const s = db.settings;
   p.innerHTML = `<form id="sf" class="card stack" style="max-width:640px">
+    <div class="row between"><h2 class="h2">Booking rules</h2><button class="btn pri">Save settings</button></div>
     <label class="fld">School name<input name="schoolName" value="${esc(s.schoolName || '')}"></label>
     <label class="fld">Working days technicians need before a practical<input name="leadDays" type="number" min="0" max="10" value="${esc(s.leadDays)}"></label>
     <p class="muted small">With 3: a Monday practical must be booked by the end of the Wednesday before. Weekends and the holidays below are skipped.</p>
     <label class="fld">Lesson periods per day (for the lab-booking chart)<input name="periodsPerDay" type="number" min="1" max="12" value="${esc(s.periodsPerDay || 6)}"></label>
     <div class="grid2"><label class="fld">Day starts<input name="dayStart" type="time" value="${esc(s.dayStart || '08:30')}"></label><label class="fld">Day ends<input name="dayEnd" type="time" value="${esc(s.dayEnd || '16:00')}"></label></div>
-    <label class="fld">Holidays and non-working days (one date per line, YYYY-MM-DD)<textarea name="holidays" rows="6">${esc((s.holidays || []).join('\n'))}</textarea></label>
-    <div class="row end"><button class="btn pri">Save settings</button></div></form>`;
+    <label class="fld">Holidays and non-working days (one date per line, YYYY-MM-DD)<textarea name="holidays" rows="6">${esc((s.holidays || []).join('\n'))}</textarea></label></form>`;
   $('#sf', p).onsubmit = async e => {
     e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
     const holidays = f.holidays.split(/[\s,]+/).map(x => x.trim()).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x));

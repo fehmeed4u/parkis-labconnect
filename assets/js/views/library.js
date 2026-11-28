@@ -80,13 +80,13 @@ function detail(p, runs, canEdit, orderCtx) {
   const cards = hazcardsFor(db, p.kit); const today = iso(new Date());
   const badge = r => r.rating ? `<span class="pill warn">★ ${esc(r.rating)}</span>` : r.imported ? '<span class="pill">Imported</span>' : r.date >= today ? '<span class="pill st-accepted">Booked</span>' : `<span class="pill">${esc(r.status === 'done' ? 'Done' : r.status)}</span>`;
   const day = d => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  return `<aside class="card side-col sticky" style="gap:16px">
-    <div><div class="muted xs" style="font-weight:500">${[gradeLabel(p), p.subject, p.course].filter(Boolean).map(esc).join(' · ')}</div><h2 class="h2" style="font-family:var(--display);font-size:24px;margin-top:4px">${esc(p.title)}</h2>${p.topic ? `<div class="muted">Topic: ${esc(p.topic)}</div>` : ''}</div>
+  return `<aside class="card side-col sticky pane-r" style="gap:12px">
+    <div><button class="btn pri block" id="useP">${orderCtx ? 'Use for this lesson' : 'Use for my order'}</button>
+    <p class="muted xs" style="margin-top:4px">Fills in the kit and sets from last time. You only pick the class, date and lab.</p></div>
+    <div><div class="muted xs" style="font-weight:500">${[gradeLabel(p), p.subject, p.course].filter(Boolean).map(esc).join(' · ')}</div><h2 class="h2" style="font-size:16px;margin-top:4px">${esc(p.title)}</h2>${p.topic ? `<div class="muted">Topic: ${esc(p.topic)}</div>` : ''}</div>
     <div><h3 class="h3">Per group</h3><ul class="rules" style="line-height:1.6">${p.kit.map(k => `<li>${esc(k.perGroup)} × ${esc(k.name)}</li>`).join('') || `<li class="muted">No kit listed yet — see the method sheet. List the kit when you order, and it is saved here for next time.</li>`}</ul></div>
     ${cards.length ? `<div class="chips"><span class="kicker danger">Hazcards</span>${cards.map(c => `<button class="chip hz" data-hz="${esc(c.code)}">${esc(c.code)}${c.title ? ' · ' + esc(c.title) : ''}</button>`).join('')}</div>` : ''}
     <div><h3 class="h3">Done before</h3>${runs.length ? `<ul class="hist">${runs.slice(0, 8).map(r => `<li><b>${esc(day(r.date))}</b><span class="muted">${esc(r.class)} · ${esc(r.teacher)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} sets</span>${badge(r)}</li>`).join('')}</ul>` : '<p class="muted small">Not run yet.</p>'}</div>
     ${p.method || canEdit ? `<div class="links">${p.method ? `<a href="${esc(p.method)}" target="_blank" rel="noopener">Method sheet</a>` : ''}${p.method && canEdit ? '<span class="sep"></span>' : ''}${canEdit ? '<button class="linkbtn" id="editP">Edit</button><span class="sep"></span><button class="linkbtn danger" id="delP">Remove</button>' : ''}</div>` : ''}
-    <div><button class="btn pri big block" id="useP">${orderCtx ? 'Use for this lesson' : 'Use for my order'}</button>
-    <p class="muted xs" style="margin-top:8px">Fills in the kit and sets from the last time. You only pick the class, date and lab.</p></div>
   </aside>`;
 }

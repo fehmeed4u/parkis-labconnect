@@ -207,9 +207,12 @@ export function render(el, opts) {
       </section>
 
       ${p ? `<section class="card stack" id="aiReview">
-        <div class="row between wrap"><div><div class="kicker">3 · Check what we have</div><h2 class="h2" style="font-family:var(--display);font-size:22px;margin-top:4px">${esc(p.title || 'Untitled practical')}</h2>
+        <div class="row between wrap"><div><div class="kicker">3 · Check what we have</div><h2 class="h2" style="font-size:16px;margin-top:4px">${esc(p.title || 'Untitled practical')}</h2>
           <div class="muted small">${[p.topic, p.aim].filter(Boolean).map(esc).join(' · ')}</div></div>
-          <span class="row gap">${ok === rows.length && rows.length ? '<span class="pill ok">Everything in stock</span>' : `<span class="pill ${missing.length ? 'urgent' : 'warn'}">${ok} of ${rows.length} items available</span>`}</span></div>
+          <span class="row gap">${ok === rows.length && rows.length ? '<span class="pill ok">Everything in stock</span>' : `<span class="pill ${missing.length ? 'urgent' : 'warn'}">${ok} of ${rows.length} items available</span>`}
+            <button type="button" class="btn pri" id="useIt" ${rows.length || p.title ? '' : 'disabled'}>Use this practical ›</button></span></div>
+        <div class="muted small">${[missing.filter(r => r.keep).length && `${missing.filter(r => r.keep).length} missing item${missing.filter(r => r.keep).length > 1 ? 's' : ''} will go to the technicians to source.`,
+            missing.filter(r => !r.keep).length && `${missing.filter(r => !r.keep).length} left out.`].filter(Boolean).join(' ')} You can still change everything on the next page.</div>
         ${missing.length || short.length ? `<div class="note ${missing.length ? 'bad' : 'warn'}"><strong>Please rethink before sending.</strong>
           ${missing.length ? ` We don’t have: ${missing.map(r => esc(label(r.ai))).join(', ')}.` : ''}${short.length ? ` Not enough: ${short.map(r => `${esc(r.ai.name)} (need ${r.need}, have ${totalStock(r.item)})`).join(', ')}.` : ''}
           Can you do it without them, share between groups, or swap for something we have? Pick a different item in the list below, or ask the AI to redo it with only our kit.
@@ -229,10 +232,6 @@ export function render(el, opts) {
           ${p.method.length ? `<h3 class="h3" style="margin-top:12px">Method</h3><ol class="rules">${p.method.map(m => `<li>${esc(m)}</li>`).join('')}</ol>` : ''}
           ${p.safety.length ? `<h3 class="h3" style="margin-top:12px">Safety</h3><ul class="rules">${p.safety.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
           ${p.disposal ? `<h3 class="h3" style="margin-top:12px">Disposal</h3><p class="small">${esc(p.disposal)}</p>` : ''}</details>` : ''}
-        <div class="row between wrap" style="border-top:1px solid var(--line);padding-top:16px">
-          <span class="muted small">${[missing.filter(r => r.keep).length && `${missing.filter(r => r.keep).length} missing item${missing.filter(r => r.keep).length > 1 ? 's' : ''} will go to the technicians to source.`,
-            missing.filter(r => !r.keep).length && `${missing.filter(r => !r.keep).length} left out.`].filter(Boolean).join(' ')} You can still change everything on the next page.</span>
-          <button type="button" class="btn pri big" id="useIt" ${rows.length || p.title ? '' : 'disabled'}>Use this practical ›</button></div>
       </section>` : ''}
     </div>`;
     wire();

@@ -1,6 +1,6 @@
 import { db, session, call } from '../store.js';
 import { esc, nice, niceLong, deadline, isLate, isLabRoom, labStatus, clashes, unavailable, hazcardsFor, roomName, totalStock, iso, addDays, monday, min, fmtMin, dayCode, isSchoolDay, parse, DAYS, gradeOf, gradesOf, lightOf, LIGHTS, teacherCanEdit, canPostpone } from '../logic.js';
-import { $, modal, closeModal, toast, hazcardModal, statusChip } from '../ui.js';
+import { $, modal, closeModal, toast, hazcardModal, statusChip, icon } from '../ui.js';
 import { go, reload } from '../app.js';
 import * as aiImport from './aiimport.js';
 import { autoRisks, mergeRisks, riskTable, ACTIVITIES, solutionPlan } from '../chem.js';
@@ -53,7 +53,7 @@ export async function render(el, _rest, q) {
 function pickLesson(el, q, teacher, editing, moving) {
   const me = session.me; const isTeacher = me.role === 'teacher';
   // every week is shown, one under the other: this week first, then the next ones
-  const shown = Math.max(1, Math.min(MAX_WEEKS + 1, Number(q.get('weeks')) || 4));
+  const shown = Math.max(1, Math.min(MAX_WEEKS + 1, Number(q.get('weeks')) || 2));
   const today = iso(new Date()); const now = new Date();
   const teachers = [...new Set(db.timetable.map(t => t.teacher))].sort();
   const mine = db.timetable.filter(t => t.teacher === teacher);
@@ -68,7 +68,7 @@ function pickLesson(el, q, teacher, editing, moving) {
   const dates = DAYS.map((_, i) => iso(addDays(mon, i)));
   let grid = '';
   {
-    grid += `<div class="wgrid tt" style="grid-template-columns:60px repeat(5,minmax(150px,1fr));grid-template-rows:40px repeat(${slots.length},44px);min-width:${60 + 5 * 150}px">`;
+    grid += `<div class="wgrid tt" style="grid-template-columns:48px repeat(5,minmax(120px,1fr));grid-template-rows:28px repeat(${slots.length},24px);min-width:${48 + 5 * 120}px">`;
     grid += `<div class="gh" style="grid-column:1;grid-row:1"></div>`;
     dates.forEach((d, i) => { const hol = !isSchoolDay(parse(d), db.settings.holidays); grid += `<div class="gh${d === today ? ' today' : ''}" style="grid-column:${2 + i};grid-row:1">${DAYS[i]} ${parse(d).getDate()} ${parse(d).toLocaleDateString('en-GB', { month: 'short' })}${hol ? ' · holiday' : ''}</div>`; });
     slots.forEach((t, r) => { grid += `<div class="gt${(t + 30) % 60 ? '' : ' hr'}" style="grid-column:1;grid-row:${2 + r}">${t % 60 && r ? '' : fmtMin(t)}</div>`;
@@ -88,32 +88,30 @@ function pickLesson(el, q, teacher, editing, moving) {
           <span class="lt">${esc(t.start)}–${esc(t.end)} · ${esc(t.class)}</span>
           <span class="ls">${esc(t.subject)} · ${esc(roomName(db, t.room))}${isLabRoom(db, t.room) ? '' : ' (classroom)'}</span>
           ${orders.map(o => `<span class="ord${o.status === 'draft' ? '' : ' l' + lightOf(o)}">✓ ${esc(o.title)} <em>${esc(o.status === 'draft' ? 'Draft' : o.status === 'done' ? 'Done' : LIGHTS[lightOf(o)])}</em></span>`).join('')}
-          ${booked && !moving ? '' : `<span class="lstate">${started || before ? '' : moving ? '→ ' : late ? '✕ ' : '✓ '}${esc(state)}</span>`}</button>`;
+          ${booked && !moving || started || before ? '' : `<span class="lstate">${moving ? '→ ' : ''}${esc(moving ? state : late ? 'Late · was due ' + nice(dl(d)) : 'Book by ' + nice(dl(d)))}</span>`}</button>`;
       });
     });
     grid += '</div>';
   }
   const weekLabel = `${mon.getDate()} ${mon.toLocaleDateString('en-GB', { month: 'short' })} – ${addDays(mon, 4).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
   return `<section class="card flush week-block">
-      <div class="row between wrap" style="padding:12px 16px;border-bottom:1px solid var(--line)">
-        <strong style="font-size:16px">${w === 0 ? 'This week' : w === 1 ? 'Next week' : 'Week of'} · ${esc(weekLabel)}</strong>
-      </div>
+      <div class="week-head"><span>${w === 0 ? 'This week' : w === 1 ? 'Next week' : 'Week of'} <span class="muted" style="font-weight:500">· ${esc(weekLabel)}</span></span></div>
       <div class="scroll">${grid}</div></section>`;
   };
 
   el.innerHTML = `<div class="page">
-    <div><a href="${editing ? '#/order?id=' + esc(editing.id) : '#/' + (isTeacher ? 'home' : 'requests')}" class="small">‹ ${editing ? 'Back to the order' : isTeacher ? 'Back to home' : 'Back to the queue'}</a>
-    ${moving ? '' : '<div class="steps-nav" aria-label="Steps"><span class="on">1 · Pick a lesson</span><span>2 · How to start</span><span>3 · Request</span></div>'}
-    <h1 class="h1" style="margin-top:8px">${moving ? `Postpone “${esc(moving.title)}”` : editing ? 'Move this order to another lesson' : isTeacher ? 'Which lesson is the practical for?' : 'Order a practical for a teacher'}</h1>
+    <div class="actionbar"><div class="stack tight-gap" style="gap:2px">
+      <div class="row gap wrap"><a href="${editing ? '#/order?id=' + esc(editing.id) : '#/' + (isTeacher ? 'home' : 'requests')}" class="small">‹ ${editing ? 'Back to the order' : isTeacher ? 'Home' : 'Queue'}</a>
+      ${moving ? '' : '<div class="steps-nav" aria-label="Steps"><span class="on">1 Pick a lesson</span><span>2 How to start</span><span>3 Request</span></div>'}</div>
+      <h1 class="h1">${moving ? `Postpone “${esc(moving.title)}”` : editing ? 'Move this order to another lesson' : isTeacher ? 'Which lesson is the practical for?' : 'Order a practical for a teacher'}</h1></div>
+      <div class="ab-btns">${!isTeacher && !moving ? `<select id="teacher" aria-label="Teacher" style="width:220px"><option value="">Choose a teacher…</option>${teachers.map(t => `<option${t === teacher ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select>` : ''}
+        ${teacher && mine.length && shown <= MAX_WEEKS ? `<a class="btn" href="${orderLink(q, { weeks: Math.min(MAX_WEEKS + 1, shown + 2) })}">Show more weeks</a>` : ''}</div></div>
     <p class="lede">${moving ? `Booked for ${esc(nice(moving.date))} ${esc(moving.start)} with ${esc(moving.class)}. Pick a later lesson — there’s no booking deadline, because the practical may already be prepared. The technicians are told.`
-      : `${isTeacher ? 'Your timetable' : 'Their timetable'}. Technicians need ${db.settings.leadDays} working days, so book by the end of the day shown on each lesson.`}</p></div>
+      : `${isTeacher ? 'Your timetable' : 'Their timetable'}. Technicians need ${db.settings.leadDays} working days — book by the date shown on each lesson. Late lessons can still be requested; they wait for approval.`}</p>
     ${practical ? `<div class="note ok">Ordering <strong>${esc(practical.title)}</strong> from the library — now pick the lesson. <a href="${orderLink(q, { practical: null })}">Not this one</a></div>` : ''}
-    ${!isTeacher && !moving ? `<label class="fld" style="max-width:320px">Teacher<select id="teacher"><option value="">Choose a teacher…</option>${teachers.map(t => `<option${t === teacher ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>` : ''}
     ${teacher ? (mine.length ? `<div class="tt-legend">${moving ? '<span><i class="ok"></i>You can move it here</span><span><i class="past"></i>Earlier or already started</span>'
         : '<span><i class="ok"></i>Can book on time</span><span><i class="late"></i>Deadline passed — late request</span><span><i class="past"></i>Already started</span><span class="sep" aria-hidden="true"></span><span class="lg">Ordered:</span><span><i class="pw"></i>Waiting for approval</span><span><i class="p0"></i>Not started</span><span><i class="p1"></i>In prep</span><span><i class="p2"></i>Ready</span>'}</div>
-      ${moving ? '' : '<p class="muted small" style="margin-top:-8px">Lessons with a red stripe are past the booking deadline. You can still request them — they show in blue until the technicians approve them.</p>'}
-      ${Array.from({ length: shown }, (_, w) => weekGrid(w)).join('')}
-      ${shown <= MAX_WEEKS ? `<div><a class="btn" href="${orderLink(q, { weeks: Math.min(MAX_WEEKS + 1, shown + 4) })}">Show more weeks</a></div>` : ''}`
+      ${Array.from({ length: shown }, (_, w) => weekGrid(w)).join('')}`
       : '<p class="empty">No lessons on the timetable for this teacher.</p>') : ''}
   </div>`;
 
@@ -160,11 +158,11 @@ const mineReq = r => r.teacherEmail === session.me.email || r.teacher === sessio
 
 /** A teacher opened a request the technicians have already started preparing: it can't be changed, only postponed. */
 function locked(el, r) {
-  el.innerHTML = `<div class="page" style="max-width:760px"><a href="#/home" class="small">‹ Back to home</a>
-    <h1 class="h1">${esc(r.title)}</h1>
+  el.innerHTML = `<div class="page" style="max-width:860px">
+    <div class="actionbar"><div><a href="#/home" class="small">‹ Home</a><h1 class="h1">${esc(r.title)}</h1></div>
+      <div class="ab-btns">${canPostpone(r) ? `<a class="btn pri" href="#/order?postpone=${esc(r.id)}">Postpone to a later lesson</a>` : ''}</div></div>
     <section class="card stack"><div class="row between wrap"><strong>${esc(niceLong(r.date))} · ${esc(r.start)}–${esc(r.end)} · ${esc(roomName(db, r.room))}</strong>${statusChip(r.status, r)}</div>
-      <p>The technicians have already started preparing this practical, so it can’t be changed or cancelled here any more. Please talk to them.</p>
-      ${canPostpone(r) ? `<p>If the lesson can’t go ahead, you can still move it to a later lesson.</p><div><a class="btn pri" href="#/order?postpone=${esc(r.id)}">Postpone to a later lesson</a></div>` : ''}</section></div>`;
+      <p>The technicians have already started preparing this practical, so it can’t be changed or cancelled here any more. Please talk to them.${canPostpone(r) ? ' If the lesson can’t go ahead, you can still move it to a later lesson.' : ''}</p></section></div>`;
 }
 
 const libKit = (kit, sets) => kit.map(k => ({ itemId: k.itemId, name: k.name, perGroup: k.perGroup, fixed: !!k.fixed, conc: k.conc || '', vol: k.vol || '', qty: k.fixed ? k.perGroup : k.perGroup * sets }));
@@ -187,39 +185,40 @@ function chooseStart(el, q, teacher, l) {
   const late = isLate(l.date, db.settings); const orders = ordersFor(teacher, l.date, l.start);
   const libForGrade = db.library.filter(p => gradesOf(p).includes(Number(l.grade || gradeOf(l.class)))).length;
   el.innerHTML = `<div class="page" style="max-width:1100px">
-    <div><a href="${orderLink(q, { date: null, start: null, mode: null })}" class="small">‹ Pick another lesson</a>
-    <div class="steps-nav" aria-label="Steps"><span class="done">1 · Pick a lesson</span><span class="on">2 · How to start</span><span>3 · Request</span></div>
-    <h1 class="h1" style="margin-top:8px">How do you want to start?</h1></div>
+    <div class="actionbar"><div class="stack" style="gap:2px">
+      <div class="row gap wrap"><a href="${orderLink(q, { date: null, start: null, mode: null })}" class="small">‹ Pick another lesson</a>
+      <div class="steps-nav" aria-label="Steps"><span class="done">1 Pick a lesson</span><span class="on">2 How to start</span><span>3 Request</span></div></div>
+      <h1 class="h1">How do you want to start?</h1></div></div>
     ${lessonCard(l, q, teacher)}
     ${orders.length ? `<div class="note warn"><strong>Already ordered for this lesson:</strong> ${orders.map(o => `${esc(o.title)} (${esc(o.status === 'draft' ? 'draft' : o.status.replace('_', ' '))}) · <a href="#/order?id=${esc(o.id)}">open it</a>`).join(' · ')}. You can still order another one below.</div>` : ''}
+    ${late ? `<div class="note bad">This lesson is past the booking deadline. You can still request it — you’ll be asked whether to talk to the technicians first.</div>` : ''}
     <div class="opts">
       <a class="opt" href="${orderLink(q, { mode: 'new' })}">
-        <span class="opt-ic" aria-hidden="true">＋</span><strong>New lab request</strong>
-        <span class="muted">Start from a blank form: name the practical and list the equipment and chemicals.</span>
-        <span class="opt-go">Start a new request ›</span></a>
+        <span class="opt-ic">${icon('plus')}</span><strong>New lab request</strong>
+        <span class="muted">Blank form: name the practical and list the equipment and chemicals.</span>
+        <span class="opt-go">${icon('arrow')}</span></a>
       <a class="opt" href="#/library?${new URLSearchParams({ order: orderLink(q).slice(1), grade: l.grade || gradeOf(l.class) || '' })}">
-        <span class="opt-ic" aria-hidden="true">📚</span><strong>From the practical library</strong>
-        <span class="muted">Reuse a practical we’ve run before. Its kit and number of sets are filled in, and you can edit or adapt anything before sending.${libForGrade ? ` ${libForGrade} for Grade ${esc(l.grade || gradeOf(l.class))}.` : ''}</span>
-        <span class="opt-go">Browse the library ›</span></a>
+        <span class="opt-ic">${icon('book')}</span><strong>From the practical library</strong>
+        <span class="muted">Reuse a practical we’ve run before — kit and sets filled in, all editable.${libForGrade ? ` ${libForGrade} for Grade ${esc(l.grade || gradeOf(l.class))}.` : ''}</span>
+        <span class="opt-go">${icon('arrow')}</span></a>
       <a class="opt" href="${orderLink(q, { mode: 'ai' })}">
-        <span class="row between" style="align-items:flex-start"><span class="opt-ic" aria-hidden="true">📋</span><span class="pill new">New</span></span><strong>Bring a practical from AI</strong>
-        <span class="muted">Found a good PDF or idea? Copy our prompt into ChatGPT, Gemini or Claude with it, paste the answer back, and see what we have and what’s missing.</span>
-        <span class="opt-go">Copy the prompt ›</span></a>
+        <span class="opt-ic">${icon('clipboard')}</span><strong>Bring a practical from AI <span class="pill new" style="margin-left:4px">New</span></strong>
+        <span class="muted">Copy our prompt into ChatGPT, Gemini or Claude with your PDF, paste the answer back, see what we have.</span>
+        <span class="opt-go">${icon('arrow')}</span></a>
       <div class="opt locked" aria-disabled="true">
-        <span class="row between" style="align-items:flex-start"><span class="opt-ic" aria-hidden="true">✨</span><span class="pill restricted">🔒 Coming soon</span></span><strong>Use AI to request this lab</strong>
-        <span class="muted">Describe what you want students to do, and AI drafts the practical, equipment list and hazards for you to check.</span>
-        <span class="opt-go muted">Not available yet</span></div>
+        <span class="opt-ic">${icon('lock')}</span><strong>Use AI to request this lab</strong>
+        <span class="muted">Describe the activity; AI drafts the equipment list and hazards for you to check.</span>
+        <span class="pill restricted">Coming soon</span></div>
     </div>
-    ${late ? `<p class="muted small">This lesson is past the booking deadline. You can still request it — you’ll be asked whether to talk to the technicians first.</p>` : ''}
   </div>`;
 }
 
 function lessonCard(l, q, teacher, editing) {
   const late = isLate(l.date, db.settings);
   return `<section class="card lesson-sum">
-    <div><div class="kicker">${session.me.role === 'teacher' ? 'Your lesson' : esc(teacher) + '’s lesson'}</div>
-      <div class="ls-main">${esc(niceLong(l.date))} · ${esc(l.start)}–${esc(l.end)}</div>
-      <div class="muted">${esc(l.class)} · ${esc(l.subject || '')} · ${esc(roomName(db, l.timetabledRoom || l.room))} (${isLabRoom(db, l.timetabledRoom || l.room) ? 'lab' : 'classroom'})</div></div>
+    <div><span class="kicker">${session.me.role === 'teacher' ? 'Your lesson' : esc(teacher) + '’s lesson'}</span>
+      <span class="ls-main">${esc(niceLong(l.date))} · ${esc(l.start)}–${esc(l.end)}</span>
+      <span class="ls-sub"> · ${esc(l.class)} · ${esc(l.subject || '')} · ${esc(roomName(db, l.timetabledRoom || l.room))} (${isLabRoom(db, l.timetabledRoom || l.room) ? 'lab' : 'classroom'})</span></div>
     <div class="row gap wrap"><span class="pill ${late ? 'st-rejected' : 'st-ready'}">${late ? 'Deadline passed (' + esc(nice(dl(l.date))) + ')' : 'Book by end of ' + esc(nice(dl(l.date)))}</span>
       <a class="btn small" href="${orderLink(q, { date: null, start: null, mode: null, w: weekOffset(l.date) || null, pick: editing ? '1' : null })}">Change lesson</a></div>
   </section>`;
@@ -253,11 +252,16 @@ function form(el, q, editing, teacher, lesson) {
   const fromLib = S.practicalId && db.library.find(p => p.id === S.practicalId);
   const back = editing ? (me.role === 'teacher' ? '#/home' : '#/requests/' + editing.id) : q.get('mode') === 'ai-form' ? orderLink(q, { mode: 'ai' }) : orderLink(q, { mode: null, practical: null });
 
+  const canSend = S.title && S.kit.length && S.risks.length && S.riskChecked && !(late && S.lateChoice !== 'draft');
   el.innerHTML = `<div class="page">
-    <div><a href="${back}" class="small">‹ ${editing ? 'Back' : 'Back to how to start'}</a>
-    ${editing ? '' : '<div class="steps-nav" aria-label="Steps"><span class="done">1 · Pick a lesson</span><span class="done">2 · How to start</span><span class="on">3 · Request</span></div>'}
-    <h1 class="h1" style="margin-top:8px">${editing ? 'Change your order' : 'Order a practical'}</h1>
-    <p class="lede">Technicians need ${db.settings.leadDays} working days. Today is ${esc(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}.</p></div>
+    <div class="actionbar"><div class="stack" style="gap:2px">
+      <div class="row gap wrap"><a href="${back}" class="small">‹ ${editing ? 'Back' : 'How to start'}</a>
+      ${editing ? '' : '<div class="steps-nav" aria-label="Steps"><span class="done">1 Pick a lesson</span><span class="done">2 How to start</span><span class="on">3 Request</span></div>'}</div>
+      <h1 class="h1">${editing ? 'Change your order' : 'Order a practical'}${S.title ? ` <span class="muted" style="font-weight:500">· ${esc(S.title)}</span>` : ''}</h1></div>
+      <div class="ab-btns">
+        ${editing && editing.status !== 'draft' ? `${me.role === 'teacher' ? `<a class="btn" href="#/order?postpone=${esc(editing.id)}">Postpone</a>` : ''}` : `<button class="btn" id="draft" ${!S.title ? 'disabled' : ''}>Save as draft</button>`}
+        <button class="btn pri" id="submit" ${canSend ? '' : 'disabled'} title="${canSend ? '' : 'See the checks on the right'}">${editing && editing.status !== 'draft' ? 'Send changes' : late ? 'Send late request' : 'Book this practical'}</button>
+      </div></div>
     ${late && !S.lateChoice ? `<section class="banner bad" role="alert"><div class="kicker">Late booking</div>
       <p><strong>Practicals on ${esc(nice(cur.date))} had to be booked by the end of ${esc(nice(dl(cur.date)))}.</strong> The technicians may not be able to prepare it in time.</p>
       <div class="row gap wrap"><button class="btn danger-solid" data-late="talk">Talk to the technicians first</button><button class="btn danger-outline" data-late="draft">Make a draft anyway, then talk to them</button></div></section>` : ''}
@@ -266,7 +270,7 @@ function form(el, q, editing, teacher, lesson) {
       <div class="row gap wrap">${techs.length ? `<a class="btn danger-solid" href="mailto:${esc(techs.join(','))}?subject=${encodeURIComponent('Late practical request: ' + (S.title || 'practical') + ' ' + nice(cur.date))}&body=${encodeURIComponent(`Hi, I missed the booking deadline. Could you manage "${S.title || '…'}" for ${S.class} on ${nice(cur.date)} ${cur.start} in ${S.room} (${S.sets} sets)?`)}">Email the technicians</a>` : '<span class="muted">Speak to them in the prep room.</span>'}
       <button class="btn danger-outline" data-late="draft">Make a draft anyway instead</button></div></section>` : ''}
     ${late && S.lateChoice === 'draft' ? `<div class="note late-w"><strong>Late request.</strong> It shows in blue — waiting for approval — on your timetable and the technicians’ board until they accept it. They can also change the day or time, or reject it. Please talk to them too.</div>` : ''}
-    ${!late && !editing ? `<div class="note ok">On time: it is booked as soon as you send it — no approval needed. You can change or cancel it until the technicians start preparing it.</div>` : ''}
+    ${!late && !editing ? `<div class="note ok">On time — booked as soon as you send it. Technicians need ${db.settings.leadDays} working days. You can change or cancel it until they start preparing.</div>` : ''}
 
     <div class="cols">
       <form class="main-col" id="of" onsubmit="return false">
@@ -285,25 +289,25 @@ function form(el, q, editing, teacher, lesson) {
           ${S.fromAI ? `<div class="note ok">Planned with AI. Check the quantities and the notes (method, safety, disposal) before you send it — it’s your request.</div>` : ''}
           ${unavailable(db, S).length ? `<div class="note warn"><strong>We don’t have ${unavailable(db, S).length === 1 ? 'this' : 'these'}:</strong> ${unavailable(db, S).map(u => esc(u.name)).join(', ')}. You can still send the request — the technicians will try to order or borrow ${unavailable(db, S).length === 1 ? 'it' : 'them'}, or suggest a swap. Leave enough time.</div>` : ''}
           ${fromLib ? `<div class="note ok">From the library: <strong>${esc(fromLib.title)}</strong>. The kit and sets are from last time — change anything you need.</div>` : ''}
-          <div class="grid2"><label class="fld">Practical<select id="practical"><option value="">— New practical (type the name below) —</option>${lib.map(p => `<option value="${esc(p.id)}"${p.id === S.practicalId ? ' selected' : ''}>${esc(p.title)} · G${esc(p.grade)} ${esc(p.subject)}</option>`).join('')}</select></label>
+          <div class="grid2" style="grid-template-columns:minmax(0,1fr) 120px"><label class="fld">Practical<select id="practical"><option value="">— New practical (type the name below) —</option>${lib.map(p => `<option value="${esc(p.id)}"${p.id === S.practicalId ? ' selected' : ''}>${esc(p.title)} · G${esc(p.grade)} ${esc(p.subject)}</option>`).join('')}</select></label>
           <label class="fld">Number of sets<input id="sets" type="number" min="1" max="40" value="${esc(S.sets)}"></label></div>
           <label class="fld"${S.practicalId ? ' hidden' : ''}>Practical name<input id="title" value="${esc(S.title)}" required placeholder="e.g. Sound waves on an oscilloscope"></label>
-          <div class="scroll"><table class="tbl"><thead><tr><th>Item</th><th>Per group</th><th>Needed</th><th>Free at that time</th><th></th></tr></thead><tbody>
+          <div class="scroll"><table class="tbl boxed kit"><thead><tr><th>Item</th><th>Per group</th><th>Needed</th><th>Free at that time</th><th></th></tr></thead><tbody>
           ${S.kit.map((k, i) => { const it = db.inventory.find(x => x.id === k.itemId); const c = clash.find(x => x.item.id === k.itemId);
             const free = !it ? '<span class="bad-t">Not in our inventory</span>' : it.list !== 'Equipment' ? '<span class="muted">—</span>' : c ? `<span class="bad-t">Only ${Math.max(0, c.have - c.used)} of ${c.have} free</span>` : '<span class="ok-t strong">Free</span>';
             const chem = it?.list === 'Chemicals' || (!it && /acid|solution|oxide|chloride|sulf|nitrate|hydroxide|carbonate|ethanol|indicator/i.test(k.name));
             return `<tr><td>${esc(k.name)}${it?.hazcards?.length ? ` <span class="pill danger">Hazcard ${esc(it.hazcards.join(', '))}</span>` : ''}${it?.sds ? ` <a class="pill sds-pill" href="${esc(it.sds)}" target="_blank" rel="noopener">SDS ↗</a>` : ''}
             ${chem && !k.fixed ? `<div class="chemin"><label>Concentration<input data-conc="${i}" value="${esc(k.conc || '')}" placeholder="e.g. 0.1 M, 2 %"></label><label>cm³ per group<input class="num" type="number" min="0" step="any" data-vol="${i}" value="${esc(k.vol || '')}" placeholder="e.g. 50"></label></div>` : ''}</td>
             <td>${k.fixed ? '<span class="muted small">teacher only</span>' : `<input class="num" type="number" min="0" step="any" value="${esc(k.perGroup)}" data-pg="${i}" aria-label="Per group">`}</td><td class="strong">${esc(k.qty)}</td><td>${free}</td>
-            <td><button type="button" class="icon-btn" data-rm="${i}" aria-label="Remove ${esc(k.name)}">×</button></td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">No items yet — add the equipment and chemicals you need.</td></tr>'}
+            <td style="width:1%"><button type="button" class="icon-btn" data-rm="${i}" aria-label="Remove ${esc(k.name)}">×</button></td></tr>`; }).join('') || '<tr><td colspan="5" class="muted">No items yet — add the equipment and chemicals you need.</td></tr>'}
           </tbody></table></div>
           <div class="add-row"><input id="addItem" list="invList" placeholder="Type to search the inventory…" aria-label="Equipment to add"><datalist id="invList">${db.inventory.map(i => `<option value="${esc(i.name + (i.altNames ? ' (' + i.altNames + ')' : '') + (i.size ? ' · ' + i.size : '') + ' [' + i.id + ']')}">`).join('')}</datalist><button type="button" class="btn" id="addBtn">+ Add equipment</button></div>
-          <label class="fld">Notes for the technicians<textarea id="notes" rows="2">${esc(S.notes)}</textarea></label>
+          <label class="fld">Notes for the technicians<textarea id="notes" rows="1">${esc(S.notes)}</textarea></label>
         </section>
 
         <section class="card stack" aria-labelledby="mh"><h2 class="h2" id="mh">Method</h2>
           <p class="muted small" style="margin:0">The steps students follow. It goes on the prep sheet and helps build the risk assessment below.</p>
-          <textarea id="method" rows="6" placeholder="1. Measure 25 cm³ of …&#10;2. …">${esc(S.method || '')}</textarea>
+          <textarea id="method" rows="4" placeholder="1. Measure 25 cm³ of …&#10;2. …">${esc(S.method || '')}</textarea>
           <details${S.prepNotes ? ' open' : ''}><summary class="strong" style="cursor:pointer">How to make up the solutions (optional)</summary>
             <p class="muted small">Only if you want them made a particular way — e.g. instructions from a past paper. Otherwise the technicians use the school’s recipes.</p>
             <textarea id="prepNotes" rows="3" placeholder="e.g. Dissolve 5 g of starch in 100 cm³ of boiling water…">${esc(S.prepNotes || '')}</textarea></details>
@@ -314,9 +318,9 @@ function form(el, q, editing, teacher, lesson) {
           <div class="chips" role="group" aria-label="What the practical involves">${ACTIVITIES.filter(a => !a.always).map(a => { const on = S.risks.some(r => r.key === 'act:' + a.id);
             return `<button type="button" class="chip${on ? ' on' : ''}" aria-pressed="${on}" data-act-toggle="${a.id}">${esc(a.label)}</button>`; }).join('')}</div>
           <div class="scroll"><table class="tbl boxed risk edit"><thead><tr><th>Hazard (what could go wrong)</th><th>How to reduce the risk</th><th>If it happens</th><th></th></tr></thead><tbody>
-          ${S.risks.map((r, i) => `<tr><td>${r.source ? `<div class="kicker" style="margin:0 0 4px">${esc(r.source)}</div>` : ''}<textarea rows="3" data-risk="${i}" data-f="hazard" aria-label="Hazard">${esc(r.hazard)}</textarea></td>
-            <td><textarea rows="3" data-risk="${i}" data-f="control" aria-label="How to reduce the risk">${esc(r.control)}</textarea></td>
-            <td><textarea rows="3" data-risk="${i}" data-f="action" aria-label="If it happens">${esc(r.action)}</textarea></td>
+          ${S.risks.map((r, i) => `<tr><td>${r.source ? `<div class="kicker" style="margin:0 0 4px">${esc(r.source)}</div>` : ''}<textarea rows="2" data-risk="${i}" data-f="hazard" aria-label="Hazard">${esc(r.hazard)}</textarea></td>
+            <td><textarea rows="2" data-risk="${i}" data-f="control" aria-label="How to reduce the risk">${esc(r.control)}</textarea></td>
+            <td><textarea rows="2" data-risk="${i}" data-f="action" aria-label="If it happens">${esc(r.action)}</textarea></td>
             <td><button type="button" class="icon-btn" data-risk-rm="${i}" aria-label="Remove this row">×</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">No rows yet — add the kit and method first.</td></tr>'}
           </tbody></table></div>
           <div class="row between wrap"><button type="button" class="btn" id="riskAdd">+ Add a row</button>
@@ -324,8 +328,8 @@ function form(el, q, editing, teacher, lesson) {
         </section>
       </form>
 
-      <aside class="side-col sticky">
-        <section class="card pad-s" style="padding:20px 22px"><h2 class="h2" style="margin-bottom:8px">Checks</h2><ul class="checks">
+      <aside class="side-col sticky pane-r" style="top:calc(var(--topbar) + 70px)">
+        <section class="card pad-s"><h2 class="h2" style="margin-bottom:6px">Checks before sending</h2><ul class="checks">
           ${late ? `<li class="bad-t">! Late: deadline was end of ${esc(nice(dl(cur.date)))}</li>` : `<li class="ok-t">✓ On time: book by end of ${esc(nice(dl(cur.date)))}</li>`}
           <li class="ok-t">✓ Matches your timetable</li>
           ${inClassroom && S.room === S.timetabledRoom ? '<li class="warn-t">! Lesson is in a classroom — pick a lab</li>' : `<li class="ok-t">✓ ${inClassroom ? 'Moved to a lab' : 'Lesson is in a lab'} (${esc(roomName(db, S.room))})</li>`}
@@ -335,9 +339,6 @@ function form(el, q, editing, teacher, lesson) {
           ${S.title ? '' : '<li class="warn-t">! Name the practical</li>'}
           ${S.riskChecked && S.risks.length ? '<li class="ok-t">✓ Risk assessment checked</li>' : '<li class="warn-t">! Check the risk assessment</li>'}
         </ul></section>
-        <button class="btn pri big block" id="submit" ${!S.title || !S.kit.length || !S.risks.length || !S.riskChecked || (late && S.lateChoice !== 'draft') ? 'disabled' : ''}>${editing && editing.status !== 'draft' ? 'Send changes' : late ? 'Send late request' : 'Book this practical'}</button>
-        ${editing && editing.status !== 'draft' ? `${me.role === 'teacher' ? `<a class="btn big block" href="#/order?postpone=${esc(editing.id)}">Postpone to a later lesson</a>` : ''}` : `<button class="btn big block" id="draft" ${!S.title ? 'disabled' : ''}>Save as draft</button>`}
-        <div class="opt locked mini" aria-disabled="true"><span class="row between"><strong>✨ Use AI to fill this in</strong><span class="pill restricted">🔒 Coming soon</span></span><span class="muted xs">AI will suggest the equipment, quantities and hazards for you to check.</span></div>
       </aside>
     </div></div>`;
 

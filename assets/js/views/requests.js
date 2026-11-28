@@ -44,16 +44,16 @@ export async function render(el, [selId]) {
 
   el.innerHTML = `<div class="page">
     <header class="page-head">
-      <div><div class="eyebrow">${esc(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}</div><h1 class="h1">Request queue</h1></div>
-      <div class="chips"><a class="pill st-submitted" href="#/requests" data-tab="new" style="text-decoration:none">${newN} late to approve</a><a class="pill urgent" href="#/inventory?flag=low" style="text-decoration:none">${low} low-stock items</a><span class="pill st-accepted">Prep booked today: ${Math.floor(todayMin / 60)} h ${todayMin % 60} min</span></div>
+      <div><h1 class="h1">Request queue</h1><div class="eyebrow">${esc(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }))}</div></div>
+      <div class="row gap wrap"><div class="chips"><a class="pill st-submitted" href="#/requests" data-tab="new" style="text-decoration:none">${newN} late to approve</a><a class="pill urgent" href="#/inventory?flag=low" style="text-decoration:none">${low} low-stock items</a><span class="pill st-accepted">Prep today: ${Math.floor(todayMin / 60)} h ${todayMin % 60} min</span></div>
+      <a class="btn pri" href="#/order">+ Order for a teacher</a></div>
     </header>
     <div class="row gap wrap">
       <div class="chips">${Object.entries(tabs).map(([k, [l, f]]) => `<button class="chip${st.tab === k ? ' on' : ''}" data-tab="${k}">${esc(l)} ${db.requests.filter(f).length}</button>`).join('')}</div>
-      <input type="search" id="rq" placeholder="Search teacher, class, practical…" value="${esc(st.q)}" aria-label="Search requests" style="flex:0 1 320px">
-      <a class="btn" href="#/order" style="margin-left:auto">+ Order for a teacher</a>
+      <input type="search" id="rq" placeholder="Search teacher, class, practical…" value="${esc(st.q)}" aria-label="Search requests" style="flex:0 1 300px">
     </div>
     <div class="cols">
-      <section class="queue" aria-label="Queue">
+      <section class="queue${sel ? ' pane-l' : ''}" aria-label="Queue">
         ${groups.map(g => `<div><h2>${esc(g.label)}</h2>${g.items.map(r => (sideBySide ? `<button class="qcard${sel && r.id === sel.id ? ' on' : ''}" data-open="${esc(r.id)}" aria-pressed="${!!sel && r.id === sel.id}">` : `<a class="qcard${r.id === current ? ' on' : ''}" href="#/prep/${esc(r.id)}">`) + `
           <span class="row between gap"><span class="t">${esc(r.title)}</span>${chip(r)}</span>
           <span class="m">${esc(r.class)} · ${esc(st.tab === 'past' || label(r.date) === 'LATER' ? nice(r.date) + ' · ' : '')}${esc(r.start)}–${esc(r.end)} · ${esc(roomName(db, r.room))} · ${esc(r.sets)} groups · ${esc(r.teacher)}</span>

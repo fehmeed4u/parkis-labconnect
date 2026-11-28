@@ -79,3 +79,17 @@ export const iconImg = (item, size = 40) => item.photo ? `<img src="${esc(item.p
 export function download(name, text, type = 'application/json') {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
+
+/** Small line icons (16×16, currentColor), so the interface doesn't rely on emoji. */
+const ICONS = {
+  nav: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6 3v10"/>',
+  paneL: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6 3v10"/><path d="M3.5 6h1M3.5 8h1"/>',
+  paneR: '<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M10 3v10"/><path d="M11.5 6h1M11.5 8h1"/>',
+  plus: '<path d="M8 3v10M3 8h10"/>',
+  book: '<path d="M3 3.5h4a1.5 1.5 0 0 1 1 .5 1.5 1.5 0 0 1 1-.5h4v9H9a1 1 0 0 0-1 1 1 1 0 0 0-1-1H3z"/><path d="M8 4v9.5"/>',
+  clipboard: '<rect x="3.5" y="3" width="9" height="11" rx="1"/><path d="M6 3V2h4v1M6 7h4M6 9.5h4M6 12h2"/>',
+  sparkle: '<path d="M8 2l1.3 3.7L13 7l-3.7 1.3L8 12l-1.3-3.7L3 7l3.7-1.3z"/>',
+  lock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>',
+  arrow: '<path d="M6 3.5L10.5 8 6 12.5"/>'
+};
+export const icon = (name, cls = '') => `<svg class="ic ${cls}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;

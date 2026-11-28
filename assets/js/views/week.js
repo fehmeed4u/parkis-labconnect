@@ -57,7 +57,7 @@ export async function render(el) {
     return `<section class="card flush scroll main-col" aria-label="Week grid">${g}</div></section>`;
   };
   if (L === 'week') body = grid();
-  if (L === 'sidebar') body = `<div class="cols">${grid()}<aside class="card side-col sticky" style="flex-basis:340px;max-width:380px;gap:8px" id="detail">${st.sel ? '' : '<p class="muted">Click a practical to see it here.</p>'}</aside></div>`;
+  if (L === 'sidebar') body = `<div class="cols">${grid()}<aside class="card side-col sticky pane-r" style="flex-basis:340px;max-width:380px;gap:8px" id="detail">${st.sel ? '' : '<p class="muted">Click a practical to see it here.</p>'}</aside></div>`;
   if (L === 'today') {
     const td = dates.includes(iso(new Date())) ? iso(new Date()) : dates[0];
     const list = jobs.filter(j => j.date === td).sort((a, b) => min(a.start) - min(b.start));

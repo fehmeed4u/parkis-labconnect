@@ -1,7 +1,7 @@
 import { CONFIG } from './config.js';
 import { db, session, refresh, isDemo, login, logout, changePassword } from './store.js';
 import { esc } from './logic.js';
-import { $, toast, modal, closeModal } from './ui.js';
+import { $, toast, modal, closeModal, icon } from './ui.js';
 import * as home from './views/home.js';
 import * as order from './views/order.js';
 import * as library from './views/library.js';
@@ -45,28 +45,55 @@ export function wireThemes(root = document) {
   });
 }
 
+/* Panels the user can hide: the menu (nav), and the left / right panels a page may have (.pane-l / .pane-r).
+   Remembered in this browser; shown as data-hide-* on <html> so the CSS does the hiding. */
+const PANES = { nav: 'data-hide-nav', l: 'data-hide-l', r: 'data-hide-r' };
+const paneKey = k => 'sp_hide_' + k;
+function applyPanes() { Object.entries(PANES).forEach(([k, a]) => { let h = false; try { h = localStorage.getItem(paneKey(k)) === '1'; } catch (e) {}
+  document.documentElement.toggleAttribute(a, h); }); }
+export function setPane(k, show) {
+  try { localStorage.setItem(paneKey(k), show ? '0' : '1'); } catch (e) {}
+  document.documentElement.toggleAttribute(PANES[k], !show);
+  const b = document.querySelector(`[data-pane="${k}"]`); if (b) b.setAttribute('aria-pressed', String(show));
+}
+const paneShown = k => !document.documentElement.hasAttribute(PANES[k]);
+const narrow = () => matchMedia('(max-width: 900px)').matches;
+
 function shell(active) {
   const nav = NAV[session.me.role] || NAV.teacher;
   const top = active.split('/')[0];
   const isOn = k => k === active || (!nav.some(([x]) => x === active) && k === top);
+  const cur = nav.find(([k]) => isOn(k));
+  applyPanes();
   $('#app').innerHTML = `<div class="shell">
   <aside class="sidebar" id="sidebar">
-    <a class="brand" href="#/${home_()}">Practicals</a>
-    <button class="icon-btn b menu-btn" id="menu" aria-label="Menu" aria-expanded="false" aria-controls="sidebar">☰</button>
+    <a class="brand" href="#/${home_()}"><span class="brand-mark" aria-hidden="true">SP</span>Science Practicals</a>
     <nav aria-label="Main">${nav.map(([k, l, s]) => `<a href="#/${k}"${isOn(k) ? ' aria-current="page"' : ''}>${esc(l)}${s ? ` <small>${esc(s)}</small>` : ''}</a>`).join('')}</nav>
     <div class="side-foot">
-      <div>Signed in as<br><strong>${esc(session.me.name)}</strong><br>${esc(ROLE_LABEL[session.me.role] || session.me.role)}</div>
-      ${themePicker()}
-      ${session.me.hasPassword ? '<button class="linkbtn small" id="chpw" style="text-align:left">Change password</button>' : ''}
-      <button class="btn small" id="signout">Sign out</button>
+      <div class="who"><strong>${esc(session.me.name)}</strong><br>${esc(ROLE_LABEL[session.me.role] || session.me.role)}</div>
+      <div class="row between">${themePicker()}${session.me.hasPassword ? '<button class="linkbtn xs" id="chpw">Password</button>' : ''}</div>
+      <button class="btn small block" id="signout">Sign out</button>
     </div>
   </aside>
+  <div class="scrim" id="scrim"></div>
   <div class="main">
+    <div class="topbar">
+      <button class="tb-btn" data-pane="nav" aria-pressed="${paneShown('nav')}" aria-controls="sidebar" title="Show or hide the menu">${icon('nav')}</button>
+      <span class="crumb">${cur ? `<b>${esc(cur[1])}</b>` : ''}</span>
+      <span class="sp"></span>
+      <button class="tb-btn tg-l" data-pane="l" aria-pressed="${paneShown('l')}" title="Show or hide the left panel">${icon('paneL')}<span>Left panel</span></button>
+      <button class="tb-btn tg-r" data-pane="r" aria-pressed="${paneShown('r')}" title="Show or hide the right panel">${icon('paneR')}<span>Right panel</span></button>
+    </div>
     <main id="view" tabindex="-1"></main>
   </div></div>`;
   $('#signout').onclick = async () => { await logout(); saveSession(); go('#/login'); render(); };
   const cp = $('#chpw'); if (cp) cp.onclick = () => passwordDialog();
-  $('#menu').onclick = () => { const o = $('#sidebar').classList.toggle('open'); $('#menu').setAttribute('aria-expanded', o); };
+  document.querySelectorAll('[data-pane]').forEach(b => b.onclick = () => {
+    const k = b.dataset.pane;
+    if (k === 'nav' && narrow()) { $('#sidebar').classList.toggle('open'); return; } // phones: the menu slides in over the page
+    setPane(k, !paneShown(k));
+  });
+  $('#scrim').onclick = () => $('#sidebar').classList.remove('open');
   wireThemes();
 }
 
@@ -83,9 +110,9 @@ async function loginView() {
   document.documentElement.dataset.theme = 'teal';
   const google = !isDemo() && CONFIG.GOOGLE_CLIENT_ID;
   $('#app').innerHTML = `<main class="login">
-    <div><h1 class="h1">Science Practicals</h1><p class="lede">Order, prepare and track the department’s practicals.</p></div>
-    <form id="lf" class="card stack" style="width:min(400px,100%);text-align:left">
-      <h2 class="h2">Sign in</h2>
+    <div><span class="brand"><span class="brand-mark" aria-hidden="true">SP</span>Science Practicals</span></div>
+    <form id="lf" class="card stack" style="padding:20px">
+      <div><h1 class="h1">Sign in</h1><p class="lede">Order, prepare and track the department’s practicals.</p></div>
       <label class="fld">Username<input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
       <label class="fld">Password<input name="password" type="password" autocomplete="current-password" required></label>
       <p id="lerr" class="err small" role="alert"></p>
@@ -116,9 +143,9 @@ async function afterSignIn() { if (session.me.mustChange) return firstPasswordVi
 function firstPasswordView() {
   document.documentElement.dataset.theme = 'teal';
   $('#app').innerHTML = `<main class="login">
-    <span class="brand">Practicals</span>
-    <form id="nf" class="card stack" style="width:min(420px,100%);text-align:left">
-      <h1 class="h2" style="font-family:var(--display);font-size:24px">Choose your password</h1>
+    <span class="brand"><span class="brand-mark" aria-hidden="true">SP</span>Science Practicals</span>
+    <form id="nf" class="card stack" style="padding:20px">
+      <h1 class="h1">Choose your password</h1>
       <p class="muted small">Hello ${esc(session.me.name)}. You signed in with a temporary password. Choose your own now — at least 8 characters. Only you will know it.</p>
       <label class="fld">New password<input name="p1" type="password" autocomplete="new-password" minlength="8" required></label>
       <label class="fld">Type it again<input name="p2" type="password" autocomplete="new-password" minlength="8" required></label>

@@ -29,11 +29,17 @@ export function sheet(r) {
   return `
     <div class="row between wrap" style="align-items:flex-start">
       <div><div class="kicker">Prep sheet · ${esc(String(r.id).toUpperCase())}</div>
-        <h2 class="h2" style="font-family:var(--display);font-size:24px;margin-top:4px">${esc(r.title)}</h2>
+        <h2 class="h2" style="font-size:16px;margin-top:4px">${esc(r.title)}</h2>
         <div class="muted" style="margin-top:4px">${esc(r.teacher)} · ${esc(r.class)} · ${esc(niceLong(r.date))} · ${esc(r.start)}–${esc(r.end)} · ${esc(roomName(db, r.room))} · <strong>${esc(r.sets)} groups</strong></div></div>
       <div class="row gap wrap no-print">${isStaff && r.status === 'submitted' ? `<button class="btn" data-act="query">Query</button><button class="btn danger-outline" data-act="reject">Reject</button><button class="btn pri" data-act="accept">Approve late request</button>`
         : statusChip(r.status, r)}</div>
     </div>
+    ${isStaff ? `<div class="sheet-bar no-print">
+      <button class="btn" data-print>Print ${esc(r.sets)} tray cards</button>
+      ${!['submitted', 'cancelled', 'rejected'].includes(r.status) ? `<div class="seg traffic" role="group" aria-label="Preparation — teachers see this colour too"><button class="d0" data-prep="0" aria-pressed="${p === 0}">Not started</button><button class="d1" data-prep="1" aria-pressed="${p === 1}">In prep</button><button class="d2" data-prep="2" aria-pressed="${p === 2}">Ready</button></div>` : ''}
+      ${!['done', 'submitted', 'cancelled', 'rejected'].includes(r.status) ? '<button class="btn" data-done>Mark done (after the lesson)</button>' : ''}
+      <a class="btn" href="#/order?id=${esc(r.id)}">Edit request</a>
+    </div>` : ''}
     ${flagNote(r)}
     ${r.status === 'submitted' ? `<div class="note late-w"><strong>Late request — waiting for approval.</strong> Sent ${esc(new Date(r.createdAt || r.updatedAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}${r.offer ? ' · you offered: ' + esc(r.offer) : ''}. <button class="linkbtn" data-act="offer">Offer another day / time</button></div>` : ''}
     ${hz.length ? `<div class="chips"><span class="kicker danger" style="margin-right:4px">Hazcards</span>${hz.map(h => `<button class="chip hz" data-hz="${esc(h.code)}">${esc(h.code)}${h.title ? ' · ' + esc(h.title) : ''}</button>`).join('')}</div>` : ''}
@@ -56,13 +62,7 @@ export function sheet(r) {
     ${chems.length ? chemSection(r, chems) : ''}
     ${r.method ? `<div><h3 class="h3">Method</h3><p style="white-space:pre-wrap;margin:0">${esc(r.method)}</p></div>` : ''}
     <details class="riskbox"${(r.risks || []).length ? '' : ' hidden'}><summary class="h3" style="cursor:pointer">Risk assessment (${(r.risks || []).length} rows)</summary>${riskTable(r.risks)}</details>
-    ${isStaff ? `<div class="no-print"><label class="fld">Technician notes (breakages, returns)<textarea data-tn rows="2">${esc(r.techNotes || '')}</textarea></label><div style="margin-top:8px"><button class="btn small" data-save-tn>Save notes</button></div></div>
-    <div class="sheet-foot no-print">
-      <button class="btn" data-print>Print ${esc(r.sets)} tray cards</button>
-      ${!['submitted', 'cancelled', 'rejected'].includes(r.status) ? `<div class="seg traffic" role="group" aria-label="Preparation — teachers see this colour too"><button class="d0" data-prep="0" aria-pressed="${p === 0}">Not started</button><button class="d1" data-prep="1" aria-pressed="${p === 1}">In prep</button><button class="d2" data-prep="2" aria-pressed="${p === 2}">Ready</button></div>` : ''}
-      ${!['done', 'submitted', 'cancelled', 'rejected'].includes(r.status) ? '<button class="btn" data-done>Mark done (after the lesson)</button>' : ''}
-      <a class="btn" href="#/order?id=${esc(r.id)}">Edit request</a>
-    </div>` : ''}
+    ${isStaff ? `<div class="no-print"><label class="fld">Technician notes (breakages, returns)<textarea data-tn rows="2">${esc(r.techNotes || '')}</textarea></label><div style="margin-top:8px"><button class="btn small" data-save-tn>Save notes</button></div></div>` : ''}
     <section class="labels print-only">${Array.from({ length: Number(r.sets) || 0 }, (_, g) => `<div class="label"><strong>${esc(r.title)} · tray ${g + 1}</strong><span>${esc(r.class)} · ${esc(nice(r.date))} ${esc(r.start)} · ${esc(roomName(db, r.room))}</span><span>${r.kit.map(k => esc(k.name)).join(', ')}</span></div>`).join('')}</section>`;
 }
 
